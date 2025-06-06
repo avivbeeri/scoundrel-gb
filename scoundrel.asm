@@ -35,9 +35,13 @@ SECTION "Header", ROM0[$100]
 EntryPoint:
   di
 
+  ; Initialize data to 0
   ld a, 0
 	ldh [hGameState], a
 	ldh [hFrameCounter], a
+  ld [wCurKeys], a
+  ld [wNewKeys], a
+
 	; Shut down audio circuitry
 	ld a, 0
 	ld [rNR52], a
@@ -96,38 +100,72 @@ GameLoop:
 .endGameLoop
  
 	jp GameLoop
+; ----------------------------
 
 DrawGameState:
+
   ret
+
+; ----------------------------
 
 DrawTitleState:
   ldh a, [hFrameCounter]
-  bit 5, a
-  jr z, .write
 
-  ; blank out text
+  bit 5, a
+  jr z, .blank
+
+  ; write or blank out text
 	ld de, StartText
   ld hl, $9985
   ld bc, START_TEXT_LEN
   call MemCopy
 
-  jp .end
+  jp .end ; jump over this, "else"
 
-.write:
+.blank:
   ; re-copy text
   ld d, 0
   ld bc, START_TEXT_LEN
   ld hl, $9985
   call Memset
 
-.end
+.end:
+
+  call UpdateKeys
+
+  ld a, [wCurKeys]
+  and a, PADF_A | PADF_B | PADF_START
+  jr z, .complete
+.beginGame
+
+  ld a, 1
+	ldh [hGameState], a
+
+  call WaitForVBlank
+	; Turn the LCD off
+	ld a, 0
+	ld [rLCDC], a
+  ld d, 0
+	ld bc, TitleTilemapEnd - TitleTilemap
+  ld hl, $9800
+  call Memset
+  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
+  ldh [rLCDC], a      ; Enable and configure the LCD to show the background
+
+.complete:
+
   ret
+
+; ----------------------------
+
 
 WaitForVBlank::
 	ld a, [rLY]
 	cp 144
 	jp c, WaitForVBlank
   ret
+
+; ----------------------------
 
 MemCopy::
 	ld a, [de]
@@ -138,6 +176,8 @@ MemCopy::
 	or a, c
 	jr nz, MemCopy
   ret
+
+; ----------------------------
 
 Memset::
 ; d: value to set
@@ -151,7 +191,53 @@ Memset::
 	jr nz, Memset
   ret
 
+; ----------------------------
+
+
+UpdateKeys::
+  ; Poll half the controller
+  ld a, P1F_GET_BTN
+  call .onenibble
+  ld b, a ; B7-4 = 1; B3-0 = unpressed buttons
+
+  ; Poll the other half
+  ld a, P1F_GET_DPAD
+  call .onenibble
+  swap a ; A7-4 = unpressed directions; A3-0 = 1
+  xor a, b ; A = pressed buttons + directions
+  ld b, a ; B = pressed buttons + directions
+
+  ; And release the controller
+  ld a, P1F_GET_NONE
+  ldh [rP1], a
+
+  ; Combine with previous wCurKeys to make wNewKeys
+  ld a, [wCurKeys]
+  xor a, b ; A = keys that changed state
+  and a, b ; A = keys that changed to pressed
+  ld [wNewKeys], a
+  ld a, b
+  ld [wCurKeys], a
+  ret
+
+.onenibble
+  ldh [rP1], a ; switch the key matrix
+  call .knownret ; burn 10 cycles calling a known ret
+  ldh a, [rP1] ; ignore value while waiting for the key matrix to settle
+  ldh a, [rP1]
+  ldh a, [rP1] ; this read counts
+  or a, $F0 ; A7-4 = 1; A3-0 = unpressed keys
+.knownret
+  ret
+
+; ----------------------------
+
+
 SECTION "Game Data", WRAM0, ALIGN[8]
+; These are used for tracking input
+wCurKeys: db
+wNewKeys: db
+
 
 SECTION "Constants", ROM0
 
