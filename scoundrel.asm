@@ -26,6 +26,12 @@ VBlankHandler:
 	pop af
 	reti
 
+SECTION "STAT Interrupt", ROM0[INT_HANDLER_STAT]
+HBlankInterrupt:
+  ; This needs to be super fast
+	; This instruction is equivalent to `ret` and `ei`
+	reti
+
 SECTION "Header", ROM0[$100]
 
 	jp EntryPoint
@@ -47,8 +53,11 @@ EntryPoint:
 	ld [rNR52], a
 
   ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK
+  ld a, IEF_VBLANK | IEF_STAT
 	ldh [rIE], a
+
+  ld a, STATF_LYC
+  ldh [rSTAT], a
 
   ; Clear rIF for safety
   xor a, a ; This is equivalent to `ld a, 0`!
@@ -76,12 +85,14 @@ EntryPoint:
   call MemCopy
 
 	; Turn the LCD on
-   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
-    ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
+  ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
+  ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
+  ld a, 127 - WX_OFS
+  ld [rWY], a
   ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
 
-	; During the first (blank) frame, initialize display registers
+	; During the first (blank) frame, initialize background palette
 	ld a, %11100100
 	ld [rBGP], a
 
@@ -137,24 +148,26 @@ DrawTitleState:
   and a, PADF_A | PADF_B | PADF_START
   jr z, .complete
 .beginGame
-
+  ; Change game state to GAME (1)
   ld a, 1
 	ldh [hGameState], a
 
-  call WaitForVBlank
 	; Turn the LCD off
+  call WaitForVBlank
 	ld a, 0
 	ld [rLCDC], a
-  ld d, 0
-	ld bc, TitleTilemapEnd - TitleTilemap
+  ; Setup the game board
+	ld de, GameTilemap
+	ld bc, GameTilemapEnd - GameTilemap
   ld hl, $9800
-  call Memset
-  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
+  call MemCopy
+  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
 
 .complete:
 
   ret
+
 
 ; ----------------------------
 
@@ -249,11 +262,30 @@ SECTION "Tile data", ROM0
 Tiles: INCBIN "tiles.bin"
 TilesEnd:
 
+SECTION "Game Tilemap", ROM0
+GameTilemap:
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $53, $54, $54, $55, $53, $54, $54, $55, $53, $54, $54, $55, $53, $54, $54, $55, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $63, $4c, $00, $65, $63, $4c, $00, $65, $63, $4c, $00, $65, $63, $4c, $00, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $63, $00, $00, $65, $63, $00, $00, $65, $63, $00, $00, $65, $63, $00, $00, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $63, $01, $01, $65, $63, $01, $01, $65, $63, $01, $01, $65, $63, $01, $01, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $73, $74, $74, $75, $73, $74, $74, $75, $73, $74, $74, $75, $73, $74, $74, $75, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $50, $51, $51, $52, $00, $00, $53, $54, $54, $55, $53, $54, $54, $55, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $60, $56, $57, $62, $00, $00, $63, $4c, $00, $65, $63, $4c, $00, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $60, $66, $67, $62, $00, $00, $63, $00, $00, $65, $63, $00, $00, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $60, $76, $77, $62, $00, $00, $63, $01, $01, $65, $63, $01, $01, $65, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $70, $71, $71, $72, $00, $00, $73, $74, $74, $75, $73, $74, $74, $75, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $01, $01, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+GameTilemapEnd:
+
 SECTION "Title Tilemap", ROM0
 TitleTilemap:
-; Tilemap: 32 x 18, Plain tiles
-; Exported by Tilemap Studio
-
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
