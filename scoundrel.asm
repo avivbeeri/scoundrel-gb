@@ -131,39 +131,17 @@ InitGameState:
   call WaitForVBlank
   di
 
-  ld a, STATF_LYC
-  ldh [rSTAT], a
-
-  ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK | IEF_STAT
-	ldh [rIE], a
-
-	ld a, 0
-	ld [rLCDC], a
-  ; Setup the game board
-	ld de, GameTilemap
-	ld bc, GameTilemapEnd - GameTilemap
-  ld hl, $9800
-  call MemCopy
-
-	ld de, WindowTilemap
-	ld hl, $9C00
-	ld bc, WindowTilemapEnd - WindowTilemap
-  call MemCopy
-
 ;; init health
   ld a, $14
   ld [wHealth], a
 
   ld a, 0
   ld [wFlag], a
-  ld [wWeapon], a
-  ld [wMonster], a
 
   ; set room
   ld d, 0
-  ld bc, 4
-  ld hl, wRoom
+  ld bc, 6
+  ld hl, wCards
   call Memset
 
   ; initialize the deck with cards
@@ -202,12 +180,48 @@ InitGameState:
   ld [hli], a
   ld a, HIGH(wDeck)
   ld [hl], a
+  ld a, STATF_LYC
+  ldh [rSTAT], a
+
+  ; Enable the VBLANK interrupt
+  ld a, IEF_VBLANK | IEF_STAT
+	ldh [rIE], a
+
+	ld a, 0
+	ld [rLCDC], a
+
+  ; Setup the game board
+	ld de, GameTilemap
+	ld bc, GameTilemapEnd - GameTilemap
+  ld hl, $9800
+  call MemCopy
+
+	ld de, WindowTilemap
+	ld hl, $9C00
+	ld bc, WindowTilemapEnd - WindowTilemap
+  call MemCopy
 
   ; shuffle the deck
+  ; Set up rendering
+  ld hl, CARD_ROOM_0 ; room card 1
+  call ClearCardBorder
+  ld hl, CARD_ROOM_1 ; room card 2
+  call ClearCardBorder
+  ld hl, CARD_ROOM_2 ; room card 3
+  call ClearCardBorder
+  ld hl, CARD_ROOM_3 ; room card 4
+  call ClearCardBorder
+  ld hl, CARD_WEAPON ; weapon card corner
+  call ClearCardBorder
+  ld hl, CARD_MONSTER ; weapon monster card
+  call ClearCardBorder
 
-  ; turn on the display, we're ready now
+  ; we're ready now
+  ; enable the background
+  ; enable the window
+  ; turn on the display
   ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
-  ldh [rLCDC], a      ; Enable and configure the LCD to show the background
+  ldh [rLCDC], a      
 
   ei
   ret
@@ -231,94 +245,86 @@ DrawGameState:
 :
 
 ; render weapon value and suit
-  ld a, [wWeapon]
-  ld c, a ; c for card
+
+  ld a, 4 ;id = 4
+  ld d, a ; save a copy for future lookups
+  ; add a, a for an address word table, we multiple by two, 
+  add a, LOW(wCards)
+  ld l, a
+  adc HIGH(wCards)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hl]
+
+  ld c, a ; c for card value, we save it before decoding
   swap a
   and a, $0F ; check the suit to see if a card is present
   jr z, .skipWeapon
 .drawWeapon
-  ld hl, WEAPON_SUIT
+  ld hl, CARD_WEAPON + SUIT_OFFSET
   add a, $4B
   ld [hl], a
 
   ld a, c
   and a, $0F ; check the suit to see if a card is present
   call BCDSplit
-  ld hl, WEAPON_ONES
+  ld hl, CARD_WEAPON + ONES_OFFSET
   inc a
   ld [hld], a
   ld a, b
   inc a
   ld [hl], a
 
-; draw card border
-  ld hl, $9906 ; weapon card corner
-  ; row one corner
-  ld a, $53
-  ld [hli], a
-  ld a, $54
-  ld [hli], a
-  ld a, $54
-  ld [hli], a
-  ld a, $55
-  ld [hl], a
-  ; row 2
-  ld a, l
-  add a, $1D
-  ld l, a
-
-  ld b, 3
-:
-  ld a, $63
-  ld [hl], a
-  ld a, l
-  add a, $03
-  ld l, a
-  ld a, $65
-  ld [hl], a
-  ld a, l
-  add a, $1D
-  ld l, a
-  dec b
-  jr nz, :-
-  ; final row
-  ld a, $73
-  ld [hli], a
-  ld a, $74
-  ld [hli], a
-  ld a, $74
-  ld [hli], a
-  ld a, $75
-  ld [hl], a
+  ld hl, CARD_WEAPON ; weapon card corner
+  call DrawCardBorder
   jr .drawWeaponComplete
 .skipWeapon
-  ld hl, WEAPON_SUIT
-  ld a, 0
-  ld [hl], a
-  ld hl, WEAPON_ONES
-  ld a, 0
-  ld [hld], a
-  ld [hl], a
-
-
-;---
-  ld hl, $9906 ; weapon card corner
-.clearCard
-  ld b, 5
-:
-  xor a, a
-  ld [hli], a
-  ld [hli], a
-  ld [hli], a
-  ld [hli], a
-  ld a, l
-  add a, $1C
-  ld l, a
-  dec b
-  jr nz, :-
-.clearCardEnd
 .drawWeaponComplete
+  call DrawHealthBar
+  ret
 
+; ----------------------------
+
+DrawTitleState:
+  ldh a, [hFrameCounter]
+
+  bit 5, a
+  jr z, .blank
+
+  ; write or blank out text
+	ld de, StartText
+  ld hl, $9985
+  ld bc, START_TEXT_LEN
+  call MemCopy
+
+  jp .end ; jump over this, "else"
+
+.blank:
+  ; re-copy text
+  ld d, 0
+  ld bc, START_TEXT_LEN
+  ld hl, $9985
+  call Memset
+
+.end:
+
+
+  ld a, [wCurKeys]
+  and a, PADF_A | PADF_B | PADF_START
+  jr z, .complete
+.beginGame
+  ; Change game state to GAME (1)
+  ld a, 1
+	ldh [hGameState], a
+
+  call InitGameState
+.complete:
+
+  ret
+
+; ---------------------------
+DrawHealthBar:
 ; render current health from BCD
   ld a, [wHealth]
   call BCDSplit
@@ -363,46 +369,63 @@ DrawGameState:
 .printHeartLoopFinish
 
   ret
-
-; ----------------------------
-
-DrawTitleState:
-  ldh a, [hFrameCounter]
-
-  bit 5, a
-  jr z, .blank
-
-  ; write or blank out text
-	ld de, StartText
-  ld hl, $9985
-  ld bc, START_TEXT_LEN
-  call MemCopy
-
-  jp .end ; jump over this, "else"
-
-.blank:
-  ; re-copy text
-  ld d, 0
-  ld bc, START_TEXT_LEN
-  ld hl, $9985
-  call Memset
-
-.end:
-
-
-  ld a, [wCurKeys]
-  and a, PADF_A | PADF_B | PADF_START
-  jr z, .complete
-.beginGame
-  ; Change game state to GAME (1)
-  ld a, 1
-	ldh [hGameState], a
-
-  call InitGameState
-.complete:
-
+; ---------------------------
+ClearCardBorder:
+  ld b, 5
+:
+  xor a, a
+  ld [hli], a
+  ld [hli], a
+  ld [hli], a
+  ld [hli], a
+  ld a, l
+  add a, $1C
+  ld l, a
+  dec b
+  jr nz, :-
+.clearCardEnd
   ret
+; ---------------------------
+DrawCardBorder:
+; draw card border
+  ; row one corner
+  ld a, $53
+  ld [hli], a
+  ld a, $54
+  ld [hli], a
+  ld a, $54
+  ld [hli], a
+  ld a, $55
+  ld [hl], a
+  ; row 2
+  ld a, l
+  add a, $1D
+  ld l, a
 
+  ld b, 3
+:
+  ld a, $63
+  ld [hl], a
+  ld a, l
+  add a, $03
+  ld l, a
+  ld a, $65
+  ld [hl], a
+  ld a, l
+  add a, $1D
+  ld l, a
+  dec b
+  jr nz, :-
+  ; final row
+  ld a, $73
+  ld [hli], a
+  ld a, $74
+  ld [hli], a
+  ld a, $74
+  ld [hli], a
+  ld a, $75
+  ld [hl], a
+  ret
 
 ; ----------------------------
 ; b - suit
@@ -544,9 +567,7 @@ wNewKeys: DB
 
 wHealth: DB
 wFlag: DB ; zero if we can run from the room, one if we can't
-wRoom: DS 4 ; 4 cards in a room
-wWeapon: DB
-wMonster: DB
+wCards: DS 6 ; 4 cards in a room
 
 wDeckSize: DB
 wDeck: DS 46
@@ -566,6 +587,25 @@ def HEALTH_ONES equ $9C0F
 def WEAPON_SUIT equ $9927
 def WEAPON_TENS equ $9967
 def WEAPON_ONES equ $9968
+
+def CARD_WEAPON equ $9906
+def CARD_MONSTER equ $990A
+def CARD_ROOM_0 equ $9842
+def CARD_ROOM_1 equ $9846
+def CARD_ROOM_2 equ $984A
+def CARD_ROOM_3 equ $984E
+
+def SUIT_OFFSET equ $21
+def TENS_OFFSET equ $61
+def ONES_OFFSET equ $62
+
+CARD_LUT:
+  dw CARD_ROOM_0
+  dw CARD_ROOM_1
+  dw CARD_ROOM_2
+  dw CARD_ROOM_3
+  dw CARD_WEAPON
+  dw CARD_MONSTER
 
 
 SECTION "Tile data", ROM0
