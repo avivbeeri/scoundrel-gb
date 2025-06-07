@@ -108,6 +108,8 @@ GameLoop:
 	ld a, %11100100
 	ld [rBGP], a
 
+  call UpdateKeys
+
   ; Check which game state we're in
   ldh a, [hGameState]
   cp a, 1 ; 1 = Game
@@ -126,6 +128,19 @@ GameLoop:
 
 DrawGameState:
 
+  ld a, [wNewKeys]
+  and a, PADF_LEFT
+  jr z, :+
+  ld b, 3
+  call DecreaseHealth
+:
+
+  ld a, [wNewKeys]
+  and a, PADF_RIGHT
+  jr z, :+
+  ld b, 4
+  call IncreaseHealth
+:
 
 ; render current health from BCD
   ld a, [wHealth]
@@ -197,7 +212,6 @@ DrawTitleState:
 
 .end:
 
-  call UpdateKeys
 
   ld a, [wCurKeys]
   and a, PADF_A | PADF_B | PADF_START
@@ -244,6 +258,26 @@ DrawTitleState:
 
   ret
 
+
+; ----------------------------
+IncreaseHealth:
+  ld a, [wHealth]
+  add a, b
+  cp a, $15 ; greater than 20?
+  jr c, :+
+  ld a, $14
+:
+  ld [wHealth], a
+  ret
+; ----------------------------
+DecreaseHealth:
+  ld a, [wHealth]
+  sub a, b
+  jr nc, :+
+  ld a, 0
+:
+  ld [wHealth], a
+  ret
 
 ; ----------------------------
 
