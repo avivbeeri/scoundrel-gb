@@ -125,6 +125,94 @@ GameLoop:
 	jp GameLoop
 
 ; ----------------------------
+InitGameState:
+
+	; Turn the LCD off
+  call WaitForVBlank
+  di
+
+  ld a, STATF_LYC
+  ldh [rSTAT], a
+
+  ; Enable the VBLANK interrupt
+  ld a, IEF_VBLANK | IEF_STAT
+	ldh [rIE], a
+
+	ld a, 0
+	ld [rLCDC], a
+  ; Setup the game board
+	ld de, GameTilemap
+	ld bc, GameTilemapEnd - GameTilemap
+  ld hl, $9800
+  call MemCopy
+
+	ld de, WindowTilemap
+	ld hl, $9C00
+	ld bc, WindowTilemapEnd - WindowTilemap
+  call MemCopy
+
+;; init health
+  ld a, $14
+  ld [wHealth], a
+
+  ld a, 0
+  ld [wFlag], a
+  ld [wWeapon], a
+  ld [wMonster], a
+
+  ; set room
+  ld d, 0
+  ld bc, 4
+  ld hl, wRoom
+  call Memset
+
+  ; initialize the deck with cards
+  ; suit by suit
+
+  ; 
+  ;  cards are encoded $xz
+  ;  x = suit 0:none 4:spade, 3:club, 1: heart, 2:diamonds, 5:special (joker?)
+  ;  z = value, 2-14
+  ld hl, wDeck
+  ld c, $09 ; 
+  ld b, $10 ; suit
+  call InitSuit
+  ld c, $09 ; 
+  ld b, $20 ; suit
+  call InitSuit
+  ld c, $0D ; 
+  ld b, $40 ; suit
+  call InitSuit
+  ld c, $0D ; 
+  ld b, $30 ; suit
+  call InitSuit
+
+  ld a, 46
+  ld [wDeckSize], a
+
+  ld hl, wDeckTop
+  ld a, LOW(wDeck)
+  ld [hli], a
+  ld a, HIGH(wDeck)
+  ld [hl], a
+
+ ; pointer for the bottom of the deck, should point at the next open slot in circular buffer
+  ld hl, wDeckBottom
+  ld a, LOW(wDeck)
+  ld [hli], a
+  ld a, HIGH(wDeck)
+  ld [hl], a
+
+  ; shuffle the deck
+
+  ; turn on the display, we're ready now
+  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
+  ldh [rLCDC], a      ; Enable and configure the LCD to show the background
+
+  ei
+  ret
+
+; ----------------------------
 
 DrawGameState:
 
@@ -141,6 +229,37 @@ DrawGameState:
   ld b, 4
   call IncreaseHealth
 :
+
+; render weapon value and suit
+  ld a, [wWeapon]
+  ld c, a ; c for card
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  jr z, .skipWeapon
+.drawWeapon
+  ld hl, WEAPON_SUIT
+  add a, $4B
+  ld [hl], a
+
+  ld a, c
+  and a, $0F ; check the suit to see if a card is present
+  call BCDSplit
+  ld hl, WEAPON_ONES
+  inc a
+  ld [hld], a
+  ld a, b
+  inc a
+  ld [hl], a
+  jr .drawWeaponComplete
+.skipWeapon
+  ld hl, WEAPON_SUIT
+  ld a, 0
+  ld [hl], a
+  ld hl, WEAPON_ONES
+  ld a, 0
+  ld [hld], a
+  ld [hl], a
+.drawWeaponComplete
 
 ; render current health from BCD
   ld a, [wHealth]
@@ -221,44 +340,23 @@ DrawTitleState:
   ld a, 1
 	ldh [hGameState], a
 
-	; Turn the LCD off
-  call WaitForVBlank
-  di
-
-  ld a, STATF_LYC
-  ldh [rSTAT], a
-
-  ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK | IEF_STAT
-	ldh [rIE], a
-
-	ld a, 0
-	ld [rLCDC], a
-  ; Setup the game board
-	ld de, GameTilemap
-	ld bc, GameTilemapEnd - GameTilemap
-  ld hl, $9800
-  call MemCopy
-
-	ld de, WindowTilemap
-	ld hl, $9C00
-	ld bc, WindowTilemapEnd - WindowTilemap
-  call MemCopy
-
-  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
-  ldh [rLCDC], a      ; Enable and configure the LCD to show the background
-
-  ei
-
-;; init health
-  ld a, $14
-  ld [wHealth], a
-
+  call InitGameState
 .complete:
 
   ret
 
 
+; ----------------------------
+; b - suit
+; c - count of cards in suit
+InitSuit:
+  ld a, b ; suit
+  or a, c
+  inc a
+  ld [hli], a
+  dec c
+  jr nz, InitSuit
+  ret
 ; ----------------------------
 IncreaseHealth:
   ld a, [wHealth]
@@ -383,10 +481,20 @@ UpdateKeys::
 
 SECTION "Game Data", WRAMX, ALIGN[8]
 ; These are used for tracking input
-wCurKeys: db
-wNewKeys: db
+wCurKeys: DB
+wNewKeys: DB
 
-wHealth: db
+wHealth: DB
+wFlag: DB ; zero if we can run from the room, one if we can't
+wRoom: DS 4 ; 4 cards in a room
+wWeapon: DB
+wMonster: DB
+
+wDeckSize: DB
+wDeck: DS 46
+
+wDeckTop: DW
+wDeckBottom: DW
 
 SECTION "Constants", ROM0
 
@@ -396,6 +504,10 @@ StartText: DB "Push Start"
 def HEALTH_FIRST_HEART equ $9C0C
 def HEALTH_TENS equ $9C0E
 def HEALTH_ONES equ $9C0F
+
+def WEAPON_SUIT equ $9927
+def WEAPON_TENS equ $9967
+def WEAPON_ONES equ $9968
 
 
 SECTION "Tile data", ROM0
