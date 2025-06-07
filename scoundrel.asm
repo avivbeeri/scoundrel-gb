@@ -250,6 +250,46 @@ DrawGameState:
   ld a, b
   inc a
   ld [hl], a
+
+; draw card border
+  ld hl, $9906 ; weapon card corner
+  ; row one corner
+  ld a, $53
+  ld [hli], a
+  ld a, $54
+  ld [hli], a
+  ld a, $54
+  ld [hli], a
+  ld a, $55
+  ld [hl], a
+  ; row 2
+  ld a, l
+  add a, $1D
+  ld l, a
+
+  ld b, 3
+:
+  ld a, $63
+  ld [hl], a
+  ld a, l
+  add a, $03
+  ld l, a
+  ld a, $65
+  ld [hl], a
+  ld a, l
+  add a, $1D
+  ld l, a
+  dec b
+  jr nz, :-
+  ; final row
+  ld a, $73
+  ld [hli], a
+  ld a, $74
+  ld [hli], a
+  ld a, $74
+  ld [hli], a
+  ld a, $75
+  ld [hl], a
   jr .drawWeaponComplete
 .skipWeapon
   ld hl, WEAPON_SUIT
@@ -259,6 +299,24 @@ DrawGameState:
   ld a, 0
   ld [hld], a
   ld [hl], a
+
+
+;---
+  ld hl, $9906 ; weapon card corner
+.clearCard
+  ld b, 5
+:
+  xor a, a
+  ld [hli], a
+  ld [hli], a
+  ld [hli], a
+  ld [hli], a
+  ld a, l
+  add a, $1C
+  ld l, a
+  dec b
+  jr nz, :-
+.clearCardEnd
 .drawWeaponComplete
 
 ; render current health from BCD
