@@ -19,6 +19,8 @@ VBlankHandler:
 	ldh a, [hFrameCounter]
 	inc a
 	ldh [hFrameCounter], a
+  ld a, 1
+	ldh [hVBlankFlag], a
 
 	pop hl
 	pop de
@@ -30,6 +32,11 @@ SECTION "STAT Interrupt", ROM0[INT_HANDLER_STAT]
 HBlankInterrupt:
   ; This needs to be super fast
 	; This instruction is equivalent to `ret` and `ei`
+  push af
+	; During the first (blank) frame, initialize background palette
+	ld a, %00011011
+	ld [rBGP], a
+  pop af
 	reti
 
 SECTION "Header", ROM0[$100]
@@ -53,11 +60,8 @@ EntryPoint:
 	ld [rNR52], a
 
   ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK | IEF_STAT
+  ld a, IEF_VBLANK
 	ldh [rIE], a
-
-  ld a, STATF_LYC
-  ldh [rSTAT], a
 
   ; Clear rIF for safety
   xor a, a ; This is equivalent to `ld a, 0`!
@@ -87,17 +91,23 @@ EntryPoint:
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
   ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
-  ld a, 127 - WX_OFS
+  ld a, 136 - WX_OFS
   ld [rWY], a
+  ld [rLYC], a
   ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
+
 
 	; During the first (blank) frame, initialize background palette
 	ld a, %11100100
 	ld [rBGP], a
 
 GameLoop:
-	halt
+  call PauseForVBlank
+
+	ld a, %11100100
+	ld [rBGP], a
+
   ; Check which game state we're in
   ldh a, [hGameState]
   cp a, 1 ; 1 = Game
@@ -111,9 +121,54 @@ GameLoop:
 .endGameLoop
  
 	jp GameLoop
+
 ; ----------------------------
 
 DrawGameState:
+
+
+; render current health from BCD
+  ld a, [wHealth]
+  call BCDSplit
+  ld hl, HEALTH_ONES
+  inc a
+  ld [hld], a
+  ld a, b
+  inc a
+  ld [hl], a
+; --
+; -- assumes we haven't got the health already
+  ld c, 10
+  ld a, [wHealth]
+  ld b, a
+  ld hl, HEALTH_FIRST_HEART
+.printHeartLoopStart:
+  xor a
+  ld a, b
+  cp a, $2
+  jr c, :+
+  dec b
+  dec b
+  ld a, $4C
+  ld [hld], a
+  jr .printHeartLoopEnd
+:
+  xor a
+  ld a, b
+  cp a, $1
+  jr c, :+
+  dec b
+  ld a, $4B
+  ld [hld], a
+  jr .printHeartLoopEnd
+:
+  ld a, $4A
+  ld [hld], a
+  jr .printHeartLoopEnd
+.printHeartLoopEnd
+  dec c
+  jr nz, .printHeartLoopStart
+.printHeartLoopFinish
 
   ret
 
@@ -154,6 +209,15 @@ DrawTitleState:
 
 	; Turn the LCD off
   call WaitForVBlank
+  di
+
+  ld a, STATF_LYC
+  ldh [rSTAT], a
+
+  ; Enable the VBLANK interrupt
+  ld a, IEF_VBLANK | IEF_STAT
+	ldh [rIE], a
+
 	ld a, 0
 	ld [rLCDC], a
   ; Setup the game board
@@ -161,8 +225,20 @@ DrawTitleState:
 	ld bc, GameTilemapEnd - GameTilemap
   ld hl, $9800
   call MemCopy
+
+	ld de, WindowTilemap
+	ld hl, $9C00
+	ld bc, WindowTilemapEnd - WindowTilemap
+  call MemCopy
+
   ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
+
+  ei
+
+;; init health
+  ld a, $14
+  ld [wHealth], a
 
 .complete:
 
@@ -171,7 +247,19 @@ DrawTitleState:
 
 ; ----------------------------
 
+; power efficient
+PauseForVBlank::
+	halt
+  ldh a, [hVBlankFlag]
+  cp a, 1
+  jr nz, PauseForVBlank
+  xor a, a
+  ldh [hVBlankFlag], a
+  ret
 
+; ----------------------------
+
+; only works if 
 WaitForVBlank::
 	ld a, [rLY]
 	cp 144
@@ -205,6 +293,19 @@ Memset::
   ret
 
 ; ----------------------------
+  ; Take a value and split it into 
+  ; in: a: value <100
+  ; out: a: units; b: tens
+BCDSplit::
+  ld b, -1
+.loop
+  inc b
+  sub 10
+  jr nc, .loop
+  add a, 10
+  ret
+; ----------------------------
+
 
 
 UpdateKeys::
@@ -246,22 +347,32 @@ UpdateKeys::
 ; ----------------------------
 
 
-SECTION "Game Data", WRAM0, ALIGN[8]
+SECTION "Game Data", WRAMX, ALIGN[8]
 ; These are used for tracking input
 wCurKeys: db
 wNewKeys: db
 
+wHealth: db
 
 SECTION "Constants", ROM0
 
 def START_TEXT_LEN equ 10
 StartText: DB "Push Start"
 
+def HEALTH_FIRST_HEART equ $9C0C
+def HEALTH_TENS equ $9C0E
+def HEALTH_ONES equ $9C0F
+
+
 SECTION "Tile data", ROM0
 
 Tiles: INCBIN "tiles.bin"
 TilesEnd:
 
+SECTION "Window Tilemap", ROM0
+WindowTilemap:
+	db  $00, $00, $00, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4C, $00, $00, $00, $0F, $03, $01
+WindowTilemapEnd:
 SECTION "Game Tilemap", ROM0
 GameTilemap:
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
@@ -309,6 +420,8 @@ TitleTilemapEnd:
 
 
 SECTION "Frame Counter", HRAM
+hVBlankFlag:
+	db
 hFrameCounter:
 	db
 hGameState:
