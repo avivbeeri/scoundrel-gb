@@ -22,6 +22,10 @@ VBlankHandler:
   ld a, 1
 	ldh [hVBlankFlag], a
 
+  ; update OAM
+  ld a, HIGH(wShadowOAM)
+  call hOAMDMA
+
 	pop hl
 	pop de
 	pop bc
@@ -48,12 +52,7 @@ SECTION "Header", ROM0[$100]
 EntryPoint:
   di
 
-  ; Initialize data to 0
-  ld a, 0
-	ldh [hGameState], a
-	ldh [hFrameCounter], a
-  ld [wCurKeys], a
-  ld [wNewKeys], a
+  call CopyDMARoutine
 
 	; Shut down audio circuitry
 	ld a, 0
@@ -67,7 +66,6 @@ EntryPoint:
   xor a, a ; This is equivalent to `ld a, 0`!
 	ldh [rIF], a
 
-  ei
 
 	; Do not turn the LCD off outside of VBlank
   call WaitForVBlank
@@ -88,6 +86,11 @@ EntryPoint:
 	ld bc, TitleTilemapEnd - TitleTilemap
   call MemCopy
 
+  ld d, 0
+  ld bc, 160 ; 160 bytes, 4 * 40
+  ld hl, wShadowOAM
+  call Memset
+
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
   ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
@@ -101,6 +104,15 @@ EntryPoint:
 	; During the first (blank) frame, initialize background palette
 	ld a, %11100100
 	ld [rBGP], a
+
+  ; Initialize data to 0
+  ld a, 0
+	ldh [hGameState], a
+	ldh [hFrameCounter], a
+  ld [wCurKeys], a
+  ld [wNewKeys], a
+
+  ei
 
 GameLoop:
   call PauseForVBlank
@@ -222,8 +234,12 @@ InitGameState:
   ; enable the background
   ; enable the window
   ; turn on the display
-  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINON | LCDCF_WIN9C00
+  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJON | LCDCF_WINON | LCDCF_WIN9C00
   ldh [rLCDC], a      
+
+	ld a, %11100100
+	ld [rOBP0], a
+	ld [rOBP1], a
 
   ei
   ret
@@ -236,6 +252,7 @@ DrawGameState:
   and a, PADF_UP | PADF_DOWN
   jr z, :+
   call MoveCursorRow
+:
 
   ld a, [wNewKeys]
   and a, PADF_LEFT
@@ -252,77 +269,17 @@ DrawGameState:
 ; render weapon value and suit
 
   ; map cursor row and index to a card index
+GetSelectionIndex:
   ld a, [wCursor] ;id = 4
   ld b, a
   ld a, [wCursorRow] ;id = 4
   sla a
   sla a
   add a, b
+  cp a, $6 ; if we've selected the deck, ignore this
+
   ;; TODO: If we're selecting the deck, we should skip this
-  ld d, a ; save a copy for future lookups
-  ; add a, a for an address word table, we multiple by two, 
-  add a, LOW(wCards)
-  ld l, a
-  adc HIGH(wCards)
-  sub l
-  ld h, a
-  ; dereference
-  ld a, [hl]
-
-  ld c, a ; c for card value, we save it before decoding
-  swap a
-  and a, $0F ; check the suit to see if a card is present
-  ld e, a
-  jr z, .skipWeapon
-.getPosition
-  ; add a, a for an address word table, we multiple by two, 
-  ld a, d
-  add a, a ; multiply by 2
-  add a, LOW(CARD_LUT)
-  ld l, a
-  adc HIGH(CARD_LUT)
-  sub l
-  ld h, a
-  ; dereference
-  ld a, [hli]
-  ld h, [hl]
-  ld l, a
-  call DrawCardBorder ; DrawCardBorder preserves HL, so we can do it here
-  push hl ; preserve it for ourselves to reuse late
-  ld    a, SUIT_OFFSET
-  call AddByteToHL
-  ld a, e
-  add a, $4B
-  ld [hl], a
-.drawWeaponValue
-  pop hl
-  ld    a, ONES_OFFSET
-  call AddByteToHL
-  ld a, c
-  and a, $0F ; check the suit to see if a card is present
-  call BCDSplit
-  ; ld hl, CARD_WEAPON + ONES_OFFSET
-  inc a
-  ld [hld], a
-  ld a, b
-  inc a
-  ld [hl], a
-
-  jr .drawWeaponComplete
-.skipWeapon
-  ld a, d
-  add a, a ; multiply by 2
-  add a, LOW(CARD_LUT)
-  ld l, a
-  adc HIGH(CARD_LUT)
-  sub l
-  ld h, a
-  ; dereference
-  ld a, [hli]
-  ld h, [hl]
-  ld l, a
-  call ClearCardBorder
-.drawWeaponComplete
+  call DrawCard
   call DrawHealthBar
   ret
 
@@ -365,6 +322,74 @@ DrawTitleState:
 
   ret
 
+; ---------------------------
+DrawCard:
+  ; PRE: Put card index into A
+  ld d, a ; save a copy for future lookups
+  ; add a, a for an address word table, we multiple by two, 
+  add a, LOW(wCards)
+  ld l, a
+  adc HIGH(wCards)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hl]
+
+  ld c, a ; c for card value, we save it before decoding
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  ld e, a
+  jr z, .skipCard
+.getPosition
+  ; add a, a for an address word table, we multiple by two, 
+  ld a, d
+  add a, a ; multiply by 2
+  add a, LOW(CARD_LUT)
+  ld l, a
+  adc HIGH(CARD_LUT)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hli]
+  ld h, [hl]
+  ld l, a
+  call DrawCardBorder ; DrawCardBorder preserves HL, so we can do it here
+  push hl ; preserve it for ourselves to reuse late
+  ld    a, SUIT_OFFSET
+  call AddByteToHL
+  ld a, e
+  add a, $4B
+  ld [hl], a
+.drawCardValue
+  pop hl
+  ld    a, ONES_OFFSET
+  call AddByteToHL
+  ld a, c
+  and a, $0F ; check the suit to see if a card is present
+  call BCDSplit
+  ; ld hl, CARD_WEAPON + ONES_OFFSET
+  inc a
+  ld [hld], a
+  ld a, b
+  inc a
+  ld [hl], a
+
+  jr .drawCardComplete
+.skipCard
+  ld a, d
+  add a, a ; multiply by 2
+  add a, LOW(CARD_LUT)
+  ld l, a
+  adc HIGH(CARD_LUT)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hli]
+  ld h, [hl]
+  ld l, a
+  call ClearCardBorder
+.drawCardComplete
+  ret
 ; ---------------------------
 DrawHealthBar:
 ; render current health from BCD
@@ -669,6 +694,32 @@ UpdateKeys::
 
 ; ----------------------------
 
+SECTION "OAM DMA routine", ROM0
+CopyDMARoutine:
+  ld  hl, DMARoutine
+  ld  b, DMARoutineEnd - DMARoutine ; Number of bytes to copy
+  ld  c, LOW(hOAMDMA) ; Low byte of the destination address
+.copy
+  ld  a, [hli]
+  ldh [c], a
+  inc c
+  dec b
+  jr  nz, .copy
+  ret
+
+SECTION "OAM DMA Code", ROM0
+DMARoutine::
+LOAD "OAM DMA", HRAM
+hOAMDMA::
+  ldh [rDMA], a
+  ld  a, 40
+.wait
+  dec a
+  jr  nz, .wait
+  ret
+ENDL
+DMARoutineEnd:
+
 
 SECTION "Game Data", WRAMX, ALIGN[8]
 ; These are used for tracking input
@@ -686,6 +737,9 @@ wDeck: DS 46
 
 wDeckTop: DW
 wDeckBottom: DW
+
+SECTION "OAM Vars",WRAM0[$C100]
+sCursorSprites: DS 4*4 ; 4 cursor reticles
 
 SECTION "Constants", ROM0
 
@@ -773,9 +827,16 @@ TitleTilemap:
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 TitleTilemapEnd:
 
+SECTION "Shadow OAM", WRAM0, ALIGN[8]
+; Cursor sprites for Deck
+; 50 08 2F 00
+; 50 22 2F 20
+; 70 08 2F 40
+; 70 22 2F 60
+wShadowOAM::
+  ds 160
 
-
-SECTION "Frame Counter", HRAM
+SECTION "Fast vars", HRAM
 hVBlankFlag:
 	db
 hFrameCounter:
