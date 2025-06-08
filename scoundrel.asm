@@ -260,16 +260,43 @@ DrawGameState:
   ld c, a ; c for card value, we save it before decoding
   swap a
   and a, $0F ; check the suit to see if a card is present
+  ld e, a
   jr z, .skipWeapon
-.drawWeapon
-  ld hl, CARD_WEAPON + SUIT_OFFSET
+.getPosition
+  ; add a, a for an address word table, we multiple by two, 
+  ld a, d
+  add a, a ; multiply by 2
+  add a, LOW(CARD_LUT)
+  ld l, a
+  adc HIGH(CARD_LUT)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hli]
+  ld h, [hl]
+  ld l, a
+  push hl
+  ld    a, SUIT_OFFSET
+  add   a, l    ; A = A+L
+  ld    l, a    ; L = A+L
+  adc   a, h    ; A = A+L+H+carry
+  sub   l       ; A = H+carry
+  ld    h, a
+  ld a, e
   add a, $4B
   ld [hl], a
-
+.drawWeaponValue
+  pop hl
+  ld    a, ONES_OFFSET
+  add   a, l    ; A = A+L
+  ld    l, a    ; L = A+L
+  adc   a, h    ; A = A+L+H+carry
+  sub   l       ; A = H+carry
+  ld    h, a
   ld a, c
   and a, $0F ; check the suit to see if a card is present
   call BCDSplit
-  ld hl, CARD_WEAPON + ONES_OFFSET
+  ; ld hl, CARD_WEAPON + ONES_OFFSET
   inc a
   ld [hld], a
   ld a, b
@@ -280,6 +307,8 @@ DrawGameState:
   call DrawCardBorder
   jr .drawWeaponComplete
 .skipWeapon
+  ld hl, CARD_WEAPON ; weapon card corner
+  call ClearCardBorder
 .drawWeaponComplete
   call DrawHealthBar
   ret
