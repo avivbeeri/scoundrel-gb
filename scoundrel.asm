@@ -246,7 +246,7 @@ DrawGameState:
 
 ; render weapon value and suit
 
-  ld a, 4 ;id = 4
+  ld a, 2 ;id = 4
   ld d, a ; save a copy for future lookups
   ; add a, a for an address word table, we multiple by two, 
   add a, LOW(wCards)
@@ -275,24 +275,17 @@ DrawGameState:
   ld a, [hli]
   ld h, [hl]
   ld l, a
-  push hl
+  call DrawCardBorder ; DrawCardBorder preserves HL, so we can do it here
+  push hl ; preserve it for ourselves to reuse late
   ld    a, SUIT_OFFSET
-  add   a, l    ; A = A+L
-  ld    l, a    ; L = A+L
-  adc   a, h    ; A = A+L+H+carry
-  sub   l       ; A = H+carry
-  ld    h, a
+  call AddByteToHL
   ld a, e
   add a, $4B
   ld [hl], a
 .drawWeaponValue
   pop hl
   ld    a, ONES_OFFSET
-  add   a, l    ; A = A+L
-  ld    l, a    ; L = A+L
-  adc   a, h    ; A = A+L+H+carry
-  sub   l       ; A = H+carry
-  ld    h, a
+  call AddByteToHL
   ld a, c
   and a, $0F ; check the suit to see if a card is present
   call BCDSplit
@@ -303,11 +296,19 @@ DrawGameState:
   inc a
   ld [hl], a
 
-  ld hl, CARD_WEAPON ; weapon card corner
-  call DrawCardBorder
   jr .drawWeaponComplete
 .skipWeapon
-  ld hl, CARD_WEAPON ; weapon card corner
+  ld a, d
+  add a, a ; multiply by 2
+  add a, LOW(CARD_LUT)
+  ld l, a
+  adc HIGH(CARD_LUT)
+  sub l
+  ld h, a
+  ; dereference
+  ld a, [hli]
+  ld h, [hl]
+  ld l, a
   call ClearCardBorder
 .drawWeaponComplete
   call DrawHealthBar
@@ -418,6 +419,7 @@ ClearCardBorder:
 DrawCardBorder:
 ; draw card border
   ; row one corner
+  push hl
   ld a, $53
   ld [hli], a
   ld a, $54
@@ -454,6 +456,7 @@ DrawCardBorder:
   ld [hli], a
   ld a, $75
   ld [hl], a
+  pop hl
   ret
 
 ; ----------------------------
@@ -532,6 +535,15 @@ Memset::
 	ld a, b
 	or a, c
 	jr nz, Memset
+  ret
+
+; ----------------------------
+AddByteToHL::
+  add   a, l    ; A = A+L
+  ld    l, a    ; L = A+L
+  adc   a, h    ; A = A+L+H+carry
+  sub   l       ; A = H+carry
+  ld    h, a
   ret
 
 ; ----------------------------
