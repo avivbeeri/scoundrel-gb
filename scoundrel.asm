@@ -137,6 +137,8 @@ InitGameState:
 
   ld a, 0
   ld [wFlag], a
+  ld [wCursorRow], a
+  ld [wCursor], a
 
   ; set room
   ld d, 0
@@ -231,22 +233,32 @@ InitGameState:
 DrawGameState:
 
   ld a, [wNewKeys]
+  and a, PADF_UP | PADF_DOWN
+  jr z, :+
+  call MoveCursorRow
+
+  ld a, [wNewKeys]
   and a, PADF_LEFT
   jr z, :+
-  ld b, 3
-  call DecreaseHealth
+  call MoveCursorLeft
 :
 
   ld a, [wNewKeys]
   and a, PADF_RIGHT
   jr z, :+
-  ld b, 4
-  call IncreaseHealth
+  call MoveCursorRight
 :
 
 ; render weapon value and suit
 
-  ld a, 2 ;id = 4
+  ; map cursor row and index to a card index
+  ld a, [wCursor] ;id = 4
+  ld b, a
+  ld a, [wCursorRow] ;id = 4
+  sla a
+  sla a
+  add a, b
+  ;; TODO: If we're selecting the deck, we should skip this
   ld d, a ; save a copy for future lookups
   ; add a, a for an address word table, we multiple by two, 
   add a, LOW(wCards)
@@ -471,6 +483,61 @@ InitSuit:
   jr nz, InitSuit
   ret
 ; ----------------------------
+MoveCursorRow:
+  ld a, [wCursorRow]
+  xor a, $01
+  ld [wCursorRow], a
+
+  cp a, 0
+  jr nz, :+
+  ld b, 3
+  jr :++
+:
+  ld b, 2
+:
+  ld a, [wCursor]
+  cp a, b
+  jr c, .complete
+  ld a, b
+  ld [wCursor], a
+.complete
+
+  ret
+; ----------------------------
+MoveCursorLeft:
+  ld a, [wCursor]
+  sub a, 1
+  jr nc, .complete
+  ld a, [wCursorRow]
+  cp a, 0
+  jr nz, :+
+  ld a, 3
+  jr .complete
+:
+  ld a, 2
+  .complete
+  ld [wCursor], a
+  ret
+; ----------------------------
+; trashes reg b to fill the row bounds
+MoveCursorRight:
+  ld a, [wCursorRow]
+  cp a, 0
+  jr nz, :+
+  ld b, 4
+  jr :++
+:
+  ld b, 3
+:
+  ld a, [wCursor]
+  inc a
+  cp a, b
+  jr c, .complete
+  xor a
+.complete
+  ld [wCursor], a
+  ret
+; ----------------------------
 IncreaseHealth:
   ld a, [wHealth]
   add a, b
@@ -538,6 +605,8 @@ Memset::
   ret
 
 ; ----------------------------
+; Add A to HL, unsigned addition
+; https://www.plutiedev.com/z80-add-8bit-to-16bit
 AddByteToHL::
   add   a, l    ; A = A+L
   ld    l, a    ; L = A+L
@@ -606,6 +675,8 @@ SECTION "Game Data", WRAMX, ALIGN[8]
 wCurKeys: DB
 wNewKeys: DB
 
+wCursorRow: DB
+wCursor: DB
 wHealth: DB
 wFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
