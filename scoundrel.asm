@@ -324,6 +324,18 @@ DrawTitleState:
   ret
 
 DrawCursorSprites:
+  ld a, [wCursorRow] ;id = 4
+  cp a, 1
+  jr nz, .notDeck
+  ld a, [wCursor] ;id = 4
+  cp a, 2
+  jr nz, .notDeck
+
+  ld b, $50
+  ld c, $08
+  jr .setOAM
+
+.notDeck
   ld a, [wCursor] ;id = 4
   ld c, a
 
@@ -348,7 +360,7 @@ DrawCursorSprites:
 :
   ; add a, $18 ; or 18 or ;
   ld c, a
-
+.setOAM
   ld hl, wShadowOAM
   ;ld b, $50 ; y
   ;ld c, $08 ; x
@@ -582,32 +594,48 @@ InitSuit:
   jr nz, InitSuit
   ret
 ; ----------------------------
+; row 0 -> 1
+; 0 -> 3
+; 1 -> 0
+; 2 -> 1
+; 3 -> 1
+
+; row 1 -> 0
+; 0 -> 1
+; 1 -> 2
+; 2 -> 0
 MoveCursorRow:
   ld a, [wCursorRow]
+  ld b, a ; keep original row
   xor a, $01
   ld [wCursorRow], a
+  cp a, 1
 
-  cp a, 0
   ld a, [wCursor]
-  jr nz, :+
-  ld b, 3
+  jr z, .row0
+  ; row 1
   add a, 1
-  jr :+++
-:
-  ld b, 2
   cp a, 3
-  jr nz, :+
-  dec a
-: 
-  dec a
+  jr c, :+
+  xor a
 :
-  cp a, b
-  jr c, .complete
-  ld a, b
-.complete
+  jr .done
+.row0
+  cp a, $0
+  jr nz, :+
+  ld a, 2
+  jr .done
+:
+  cp a, $1
+  jr nz, :+
+  ld a, 0
+  jr .done
+:
+  ld a, 1
+.done
   ld [wCursor], a
-
   ret
+
 ; ----------------------------
 MoveCursorLeft:
   ld a, [wCursor]
