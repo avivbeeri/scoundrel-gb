@@ -265,6 +265,7 @@ DrawGameState:
   jr z, :+
   call MoveCursorRight
 :
+  call DrawCursorSprites
 
 ; render weapon value and suit
 
@@ -320,6 +321,79 @@ DrawTitleState:
   call InitGameState
 .complete:
 
+  ret
+
+DrawCursorSprites:
+  ld a, [wCursor] ;id = 4
+  ld c, a
+
+; compute y by row
+  ld a, [wCursorRow] ;id = 4
+  cp a, 1
+  jr z, :+
+  ld b, $20
+  ld a, $18
+  jr :++
+:
+  ld b, $50
+  ld a, $38
+:
+; start figuring out x
+  inc c
+:
+  dec c
+  jr z, :+
+  add $20
+  jr :-
+:
+  ; add a, $18 ; or 18 or ;
+  ld c, a
+
+  ld hl, wShadowOAM
+  ;ld b, $50 ; y
+  ;ld c, $08 ; x
+  ; top left
+  ld a, b
+  ld [hli], a
+  ld a, c
+  ld [hli], a
+  ld a, $2F ; tile
+  ld [hli], a
+  ld a, $00 ; non rotated flags
+  ld [hli], a
+
+; top right
+  ld a, b
+  ld [hli], a
+  ld a, c
+  add $1A
+  ld [hli], a
+  ld a, $2F ; tile
+  ld [hli], a
+  ld a, $20 ; non rotated flags
+  ld [hli], a
+; bottom left
+  ld a, b
+  add $22
+  ld [hli], a
+  ld a, c
+  ld [hli], a
+  ld a, $2F ; tile
+  ld [hli], a
+  ld a, $40 ; non rotated flags
+  ld [hli], a
+  ; bottom right
+
+  ld a, b
+  add $22
+  ld [hli], a
+  ld a, c
+  add $1A
+  ld [hli], a
+  ld a, $2F ; tile
+  ld [hli], a
+  ld a, $60 ; non rotated flags
+  ld [hli], a
   ret
 
 ; ---------------------------
@@ -514,18 +588,24 @@ MoveCursorRow:
   ld [wCursorRow], a
 
   cp a, 0
+  ld a, [wCursor]
   jr nz, :+
   ld b, 3
-  jr :++
+  add a, 1
+  jr :+++
 :
   ld b, 2
+  cp a, 3
+  jr nz, :+
+  dec a
+: 
+  dec a
 :
-  ld a, [wCursor]
   cp a, b
   jr c, .complete
   ld a, b
-  ld [wCursor], a
 .complete
+  ld [wCursor], a
 
   ret
 ; ----------------------------
@@ -772,6 +852,9 @@ CARD_LUT:
   dw CARD_ROOM_3
   dw CARD_WEAPON
   dw CARD_MONSTER
+
+; TOP_ROW_CURSOR_OFFSET:
+; db $20, $18
 
 
 SECTION "Tile data", ROM0
