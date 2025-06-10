@@ -282,6 +282,7 @@ GetSelectionIndex:
   ;; TODO: If we're selecting the deck, we should skip this
   call DrawCard
   call DrawHealthBar
+  call DrawDeckTotal
   ret
 
 ; ----------------------------
@@ -331,8 +332,8 @@ DrawCursorSprites:
   cp a, 2
   jr nz, .notDeck
 
-  ld b, $50
-  ld c, $08
+  ld b, $51
+  ld c, $09
   jr .setOAM
 
 .notDeck
@@ -343,12 +344,12 @@ DrawCursorSprites:
   ld a, [wCursorRow] ;id = 4
   cp a, 1
   jr z, :+
-  ld b, $20
-  ld a, $18
+  ld b, $21
+  ld a, $19
   jr :++
 :
-  ld b, $50
-  ld a, $38
+  ld b, $51
+  ld a, $39
 :
 ; start figuring out x
   inc c
@@ -378,7 +379,7 @@ DrawCursorSprites:
   ld a, b
   ld [hli], a
   ld a, c
-  add $1A
+  add $18
   ld [hli], a
   ld a, $2F ; tile
   ld [hli], a
@@ -386,7 +387,7 @@ DrawCursorSprites:
   ld [hli], a
 ; bottom left
   ld a, b
-  add $22
+  add $20
   ld [hli], a
   ld a, c
   ld [hli], a
@@ -397,10 +398,10 @@ DrawCursorSprites:
   ; bottom right
 
   ld a, b
-  add $22
+  add $20
   ld [hli], a
   ld a, c
-  add $1A
+  add $18
   ld [hli], a
   ld a, $2F ; tile
   ld [hli], a
@@ -475,6 +476,18 @@ DrawCard:
   ld l, a
   call ClearCardBorder
 .drawCardComplete
+  ret
+; ---------------------------
+DrawDeckTotal:
+  ld hl, DECK_ONES
+  ld a, [wDeckSize]
+  call BCDSplit
+  ; ld hl, CARD_WEAPON + ONES_OFFSET
+  inc a
+  ld [hld], a
+  ld a, b
+  inc a
+  ld [hl], a
   ret
 ; ---------------------------
 DrawHealthBar:
@@ -861,6 +874,9 @@ def HEALTH_ONES equ $9C0F
 def WEAPON_SUIT equ $9927
 def WEAPON_TENS equ $9967
 def WEAPON_ONES equ $9968
+
+def DECK_TENS equ $99A1
+def DECK_ONES equ $99A2
 
 def CARD_WEAPON equ $9906
 def CARD_MONSTER equ $990A
