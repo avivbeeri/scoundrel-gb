@@ -25,6 +25,7 @@ VBlankHandler:
   ; update OAM
   ld a, HIGH(wShadowOAM)
   call hOAMDMA
+  call ReadVRAMUpdate
 
 	pop hl
 	pop de
@@ -278,7 +279,6 @@ DrawGameState:
   jr z, :+
   call MoveCursorRight
 :
-  call ReadVRAMUpdate
 
   call DrawCursorSprites
 
@@ -535,48 +535,42 @@ DrawHealthBar:
   inc b
   call PushVRAMUpdate
 
+  ; -- assumes we haven't got the health already
+  ; -- 10 hearts - we'll try to do this implied
+  ; -- health total
 
-  ; ld hl, HEALTH_ONES
-  ; inc a
-  ; ld [hld], a
-  ; ld a, b
-  ; inc a
-  ; ld [hl], a
-; --
-; -- assumes we haven't got the health already
-  ld c, 10
+  ; de - vram location
   ld a, [wHealth]
-  ld b, a
-  ld hl, HEALTH_FIRST_HEART
+  ld c, a; save a copy of health
+  ld de, HEALTH_FIRST_HEART
 .printHeartLoopStart:
-  xor a
-  ld a, b
+  xor a ; is a zero here?
+  ld a, c
   cp a, $2
   jr c, :+
-  dec b
-  dec b
-  ld a, $4C
-  ld [hld], a
+  dec c
+  dec c
+  ld b, $4C
   jr .printHeartLoopEnd
 :
-  xor a
-  ld a, b
+  xor a ; is a zero here?
+  ld a, c
   cp a, $1
   jr c, :+
-  dec b
-  ld a, $4B
-  ld [hld], a
+  dec c
+  ld b, $4B
   jr .printHeartLoopEnd
 :
-  ld a, $4A
-  ld [hld], a
-  jr .printHeartLoopEnd
+  ld b, $4A
 .printHeartLoopEnd
-  dec c
+  call PushVRAMUpdate
+  dec e
+  ld a, e
+  cp a, (LOW(HEALTH_FIRST_HEART) - 10) ; We have a known fixed number to draw so we can just compare it here
   jr nz, .printHeartLoopStart
 .printHeartLoopFinish
-
   ret
+
 ; ---------------------------
 ClearCardBorder:
   ld b, 5
@@ -808,8 +802,11 @@ ReadVRAMUpdate::
 
   ret
 
-; addr in de
-; value in b?
+;-------------------------------
+;
+; de - addr in VRAM
+; b - value to write
+; clobbers HL
 PushVRAMUpdate::
   ld a, [wQueueSlot]
   ld l, a
