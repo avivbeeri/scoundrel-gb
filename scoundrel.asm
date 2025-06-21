@@ -98,7 +98,11 @@ EntryPoint:
   call Memset
 
   xor a
-  ld [wQueueTotal], a
+  ld [wQueueCount], a
+  ld a, LOW(wQueue)
+  ld [wQueueSlot], a
+  ld a, HIGH(wQueue)
+  ld [wQueueSlot+1], a
 
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
@@ -274,6 +278,8 @@ DrawGameState:
   jr z, :+
   call MoveCursorRight
 :
+  call ReadVRAMUpdate
+
   call DrawCursorSprites
 
 ; render weapon value and suit
@@ -519,12 +525,23 @@ DrawHealthBar:
 ; render current health from BCD
   ld a, [wHealth]
   call BCDSplit
-  ld hl, HEALTH_ONES
-  inc a
-  ld [hld], a
-  ld a, b
-  inc a
-  ld [hl], a
+  ld c, a
+
+  ld de, HEALTH_TENS
+  inc b
+  call PushVRAMUpdate
+  ld de, HEALTH_ONES
+  ld b, c
+  inc b
+  call PushVRAMUpdate
+
+
+  ; ld hl, HEALTH_ONES
+  ; inc a
+  ; ld [hld], a
+  ; ld a, b
+  ; inc a
+  ; ld [hl], a
 ; --
 ; -- assumes we haven't got the health already
   ld c, 10
@@ -765,8 +782,60 @@ BCDSplit::
   ret
 ; ----------------------------
 
+ReadVRAMUpdate::
+  ld hl, wQueue
+  ld a, [wQueueCount]
+  ld c, a ;
+  inc c
+.loop
+  dec c
+  jr z, :+
 
+  ld a, [HLI]
+  ld e, a
+  ld a, [HLI]
+  ld d, a
+  ld a, [HLI]
+  ld [DE], a
+  jr .loop
+:
+  xor a
+  ld [wQueueCount], a
+  ld a, LOW(wQueue)
+  ld [wQueueSlot], a
+  ld a, HIGH(wQueue)
+  ld [wQueueSlot+1], a
 
+  ret
+
+; addr in de
+; value in b?
+PushVRAMUpdate::
+  ld a, [wQueueSlot]
+  ld l, a
+  ld a, [wQueueSlot+1]
+  ld h, a
+
+  ld [hl], e
+  inc hl
+  ld [hl], d
+  inc hl
+  ld [hl], b
+  inc hl
+
+  ld a, l
+  ld [wQueueSlot], a
+  ld a, h
+  ld [wQueueSlot+1], a
+
+  ld a, [wQueueCount]
+  inc a
+  ld [wQueueCount], a
+
+  ret
+; ----------------------------
+
+; ----------------------------
 UpdateKeys::
   ; Poll half the controller
   ld a, P1F_GET_BTN
@@ -850,7 +919,8 @@ wDeckTop: DW
 wDeckBottom: DW
 
 SECTION "VRAM Update Queue",WRAM0[$C0A0]
-wQueueTotal: DB
+wQueueCount: DB
+wQueueSlot: DW
 wQueue: DS (255 * 3)
 
 SECTION "Constants", ROM0
