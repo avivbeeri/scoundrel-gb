@@ -325,11 +325,11 @@ DrawTitleState:
   ret
 
 DrawCursorSprites:
-  ld a, [wCursorRow] ;id = 4
+  ld a, [wCursorRow]
   cp a, 1
   jr nz, .notDeck
-  ld a, [wCursor] ;id = 4
-  cp a, 2
+  ld a, [wCursor] 
+  cp a, 0
   jr nz, .notDeck
 
   ld b, $51
@@ -337,11 +337,11 @@ DrawCursorSprites:
   jr .setOAM
 
 .notDeck
-  ld a, [wCursor] ;id = 4
+  ld a, [wCursor] 
   ld c, a
 
 ; compute y by row
-  ld a, [wCursorRow] ;id = 4
+  ld a, [wCursorRow]
   cp a, 1
   jr z, :+
   ld b, $21
@@ -619,33 +619,9 @@ InitSuit:
 ; 2 -> 0
 MoveCursorRow:
   ld a, [wCursorRow]
-  ld b, a ; keep original row
   xor a, $01
   ld [wCursorRow], a
-  cp a, 1
-
-  ld a, [wCursor]
-  jr z, .row0
-  ; row 1
-  add a, 1
-  cp a, 3
-  jr c, :+
   xor a
-:
-  jr .done
-.row0
-  cp a, $0
-  jr nz, :+
-  ld a, 2
-  jr .done
-:
-  cp a, $1
-  jr nz, :+
-  ld a, 0
-  jr .done
-:
-  ld a, 1
-.done
   ld [wCursor], a
   ret
 
@@ -660,7 +636,9 @@ MoveCursorLeft:
   ld a, 3
   jr .complete
 :
-  ld a, 2
+  xor a
+  ld [wCursorRow], a
+  ld a, 3
   .complete
   ld [wCursor], a
   ret
@@ -673,7 +651,9 @@ MoveCursorRight:
   ld b, 4
   jr :++
 :
-  ld b, 3
+  xor a
+  ld [wCursorRow], a
+  ld b, 1
 :
   ld a, [wCursor]
   inc a
@@ -908,7 +888,7 @@ TilesEnd:
 
 SECTION "Window Tilemap", ROM0
 WindowTilemap:
-	db  $00, $00, $00, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4C, $00, $00, $00, $0F, $03, $01
+	db  $00, $00, $00, $00, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $00, $00, $00, $0F, $03, $01, $00
 WindowTilemapEnd:
 SECTION "Game Tilemap", ROM0
 GameTilemap:
