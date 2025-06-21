@@ -91,6 +91,15 @@ EntryPoint:
   ld hl, wShadowOAM
   call Memset
 
+  ; Set up the VRAM update queue
+  ld d, 0
+  ld bc, (255 * 3)
+  ld hl, wQueue
+  call Memset
+
+  xor a
+  ld [wQueueTotal], a
+
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
   ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
@@ -148,9 +157,9 @@ InitGameState:
   ld [wHealth], a
 
   ld a, 0
-  ld [wFlag], a
-  ld [wCursorRow], a
+  ld [wRunFlag], a
   ld [wCursor], a
+  ld [wCardFlags], a
 
   ; set room
   ld d, 0
@@ -269,20 +278,47 @@ DrawGameState:
 
 ; render weapon value and suit
 
-  ; map cursor row and index to a card index
-GetSelectionIndex:
-  ld a, [wCursor] ;id = 4
-  ld b, a
-  ld a, [wCursorRow] ;id = 4
-  sla a
-  sla a
-  add a, b
-  cp a, $6 ; if we've selected the deck, ignore this
+;   ; map cursor row and index to a card index
+; GetSelectionIndex:
+;   ld a, [wCursor] ;id = 4
+;   ; if we've selected the deck, ignore this
+;   cp a, 4
+;   jr nz, :+
+;   ret
+; :
 
-  ;; TODO: If we're selecting the deck, we should skip this
+UpdateCardGraphics:
+  ld a, [wCardFlags]
+  ld b, a
+  ld c, $FF
+.flagLoop
+  ld a, b
+  cp a, 0
+  jr z, .complete
+
+  inc c
+  srl b
+  jr nc, .flagLoop
+
+  push BC
+  ld a, c
+  cp a, 6 ; 0 - health 0 - deck 00 - bottom row 0000 - top row
+  jr nc, :+
   call DrawCard
-  call DrawHealthBar
+  jr .loopEnd
+:
+  cp a, 6
+  jr z, :+
   call DrawDeckTotal
+  jr .loopEnd
+:
+  call DrawHealthBar
+.loopEnd
+  pop BC
+  jr .flagLoop
+.complete
+  xor a
+  ld [wCardFlags], a
   ret
 
 ; ----------------------------
@@ -325,11 +361,8 @@ DrawTitleState:
   ret
 
 DrawCursorSprites:
-  ld a, [wCursorRow]
-  cp a, 1
-  jr nz, .notDeck
   ld a, [wCursor] 
-  cp a, 0
+  cp a, 4
   jr nz, .notDeck
 
   ld b, $51
@@ -341,16 +374,8 @@ DrawCursorSprites:
   ld c, a
 
 ; compute y by row
-  ld a, [wCursorRow]
-  cp a, 1
-  jr z, :+
   ld b, $21
   ld a, $19
-  jr :++
-:
-  ld b, $51
-  ld a, $39
-:
 ; start figuring out x
   inc c
 :
@@ -618,10 +643,14 @@ InitSuit:
 ; 1 -> 2
 ; 2 -> 0
 MoveCursorRow:
-  ld a, [wCursorRow]
-  xor a, $01
-  ld [wCursorRow], a
+  ld a, [wCursor]
+  cp a, 4
+  jr nz, :+
   xor a
+  jr .complete
+:
+  ld a, 4
+.complete
   ld [wCursor], a
   ret
 
@@ -630,34 +659,15 @@ MoveCursorLeft:
   ld a, [wCursor]
   sub a, 1
   jr nc, .complete
-  ld a, [wCursorRow]
-  cp a, 0
-  jr nz, :+
-  ld a, 3
-  jr .complete
-:
-  xor a
-  ld [wCursorRow], a
-  ld a, 3
-  .complete
+  ld a, 4
+.complete
   ld [wCursor], a
   ret
 ; ----------------------------
-; trashes reg b to fill the row bounds
 MoveCursorRight:
-  ld a, [wCursorRow]
-  cp a, 0
-  jr nz, :+
-  ld b, 4
-  jr :++
-:
-  xor a
-  ld [wCursorRow], a
-  ld b, 1
-:
   ld a, [wCursor]
   inc a
-  cp a, b
+  cp a, 5
   jr c, .complete
   xor a
 .complete
@@ -827,10 +837,10 @@ SECTION "Game Data", WRAMX, ALIGN[8]
 wCurKeys: DB
 wNewKeys: DB
 
-wCursorRow: DB
+wCardFlags: DB
 wCursor: DB
 wHealth: DB
-wFlag: DB ; zero if we can run from the room, one if we can't
+wRunFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
 
 wDeckSize: DB
@@ -839,8 +849,9 @@ wDeck: DS 46
 wDeckTop: DW
 wDeckBottom: DW
 
-SECTION "OAM Vars",WRAM0[$C100]
-sCursorSprites: DS 4*4 ; 4 cursor reticles
+SECTION "VRAM Update Queue",WRAM0[$C0A0]
+wQueueTotal: DB
+wQueue: DS (255 * 3)
 
 SECTION "Constants", ROM0
 
