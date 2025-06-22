@@ -38,10 +38,30 @@ HBlankInterrupt:
   ; This needs to be super fast
 	; This instruction is equivalent to `ret` and `ei`
   push af
-	; During the first (blank) frame, initialize background palette
+	jp StatHandler
+
+SECTION "STAT Handler", ROM0
+StatHandler:
+  ldh A, [rSTAT]
+  and A, STATB_LYCF
+  jr z, :+
+  call WaitForHBlank
 	ld a, %00011011
 	ld [rBGP], a
-  pop af
+  jr .handlerComplete
+:
+  ldh A, [hUpdateVRAMFlag]
+  cp A, $2
+  jr nz, .handlerComplete
+  push BC
+  push DE
+  push HL
+  call ReadVRAMUpdate
+  pop HL
+  pop DE
+  pop BC
+.handlerComplete
+	pop af
 	reti
 
 SECTION "Header", ROM0[$100]
@@ -52,6 +72,7 @@ SECTION "Header", ROM0[$100]
 
 EntryPoint:
   di
+  ld SP, $DFFE ; reposition the stack pointer to the end of WRAM
 
   call CopyDMARoutine
 
@@ -73,7 +94,7 @@ EntryPoint:
 
 	; Turn the LCD off
 	ld a, 0
-	ld [rLCDC], a
+	ldh [rLCDC], a
 
 	; Copy the tile data
 	ld de, Tiles
@@ -99,7 +120,7 @@ EntryPoint:
   call Memset
 
   xor a
-  ld [hQueueCount], a
+  ldh [hUpdateVRAMFlag], a
   ld a, LOW(wQueue)
   ld [wQueuePtr], a
   ld a, HIGH(wQueue)
@@ -108,9 +129,11 @@ EntryPoint:
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
   ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
-  ld a, 136 - WX_OFS
-  ld [rWY], a
-  ld [rLYC], a
+  ld A, 136 - WX_OFS
+  ldh [rLYC], A ; this is a line prior so we can pull some HBlank trickery
+  inc A
+  ldh [rWY], A
+
   ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
 
@@ -130,9 +153,10 @@ EntryPoint:
 
 GameLoop:
   call PauseForVBlank
+  call ResetVRAMQueue
 
 	ld a, %11100100
-	ld [rBGP], a
+	ldh [rBGP], a
 
   call UpdateKeys
 
@@ -209,15 +233,15 @@ InitGameState:
   ld [hli], a
   ld a, HIGH(wDeck)
   ld [hl], a
-  ld a, STATF_LYC
-  ldh [rSTAT], a
+  ld A, STATF_LYC | STATF_MODE00
+  ldh [rSTAT], A
 
   ; Enable the VBLANK interrupt
   ld a, IEF_VBLANK | IEF_STAT
 	ldh [rIE], a
 
 	ld a, 0
-	ld [rLCDC], a
+	ldh [rLCDC], a
 
   ; Setup the game board
 	ld de, GameTilemap
@@ -253,8 +277,8 @@ InitGameState:
   ldh [rLCDC], a      
 
 	ld a, %11100100
-	ld [rOBP0], a
-	ld [rOBP1], a
+	ldh [rOBP0], a
+	ldh [rOBP1], a
 
   ei
   ret
@@ -573,18 +597,49 @@ DrawHealthBar:
 
 ; ---------------------------
 ClearCardBorder:
-  ld b, 5
+  ld D, H
+  ld E, L
+
+  push BC
+  push DE
+  push HL
+  ld L, 5
+  ld B, 0
 :
-  xor a, a
-  ld [hli], a
-  ld [hli], a
-  ld [hli], a
-  ld [hli], a
-  ld a, l
-  add a, $1C
-  ld l, a
-  dec b
+  push HL
+  call PushVRAMUpdate
+  inc DE
+  call PushVRAMUpdate
+  inc DE
+  call PushVRAMUpdate
+  inc DE
+  call PushVRAMUpdate
+  inc DE
+  ld A, E ; this might not be good enough
+  add A, $1C
+  ld E, A
+  pop HL
+  dec L
   jr nz, :-
+.clearCardEnd
+  pop HL
+  pop DE
+  pop BC
+  ret
+
+ClearCardBorderOld:
+   ld B, 5
+:
+   xor a, a
+   ld [hli], a
+   ld [hli], a
+   ld [hli], a
+   ld [hli], a
+   ld a, l
+   add a, $1C
+   ld l, a
+   dec b
+   jr nz, :-
 .clearCardEnd
   ret
 ; ---------------------------
@@ -712,17 +767,24 @@ PauseForVBlank::
   ldh a, [hVBlankFlag]
   cp a, 1
   jr nz, PauseForVBlank
-  xor a, a
-  ldh [hVBlankFlag], a
+  xor A
+  ldh [hVBlankFlag], A
   ret
 
 ; ----------------------------
 
+WaitForHBlank::
+.wait
+  ldh A, [rSTAT]
+  and A, STATF_BUSY
+  jr nz, .wait
+  ret
+
 ; only works if 
 WaitForVBlank::
-	ld a, [rLY]
+	ldh a, [rLY]
 	cp 144
-	jp c, WaitForVBlank
+	jr c, WaitForVBlank
   ret
 
 ; ----------------------------
@@ -777,17 +839,34 @@ BCDSplit::
 ; ----------------------------
 
 ReadVRAMUpdate::
-; Using stack operations to read the queue is faster, so we save the stack pointer in HL
+  ldh A, [hUpdateVRAMFlag]
+  or A
+  jr z, .skip
+
   ld HL, SP+0      
+
+  cp A, $2
+  jr nz, .fresh
+.resume
+  ; Copy stack pointer to BC from HL, so we can load the stack pointer
+  ld C, L
+  ld B, H
+
+  ; load QueuePtr -> SP
+  ld A, [wQueuePtr]
+  ld L, A
+  ld A, [wQueuePtr+1]
+  ld H, A
+  ld SP, HL
+  ; restore the stack pointer to HL for later restore
+  ld L, C
+  ld H, B
+
+  jr .loop
+.fresh
+; Using stack operations to read the queue is faster, so we save the stack pointer in HL
   ld SP, wQueue
-
-  ldh A, [hQueueCount]
-  ld C, A
-  inc C
 .loop
-  dec C
-  jr Z, .complete
-
   ldh A, [$FF41]     ; STAT Register
   and A, STATF_BUSY
   jr nz, .pauseUpdate
@@ -802,24 +881,18 @@ ReadVRAMUpdate::
 .pauseUpdate
   ; vblank ended or hblank ending
   ; we should pause so we can resume
-  push HL ; preserve our stack pointer on the stack (this overwrites stale queue data now)
-  ld HL, SP+0 ; get the current queue position
-  ld A, L
-  ld [wQueuePtr], A
-  ld A, H
-  ld [wQueuePtr + 1], A
-  ; restore the stack pointer to HL
-  pop HL
-  
-.complete
+  LD [wQueuePtr], SP
   ld SP, HL ; restore the stack pointer for safety
-  xor A
-  ldh [hQueueCount], A ; reset the flag ; we could do this elsewhere
-  ld A, LOW(wQueue)
-  ld [wQueuePtr], A
-  ld A, HIGH(wQueue)
-  ld [wQueuePtr+1], A
 
+  ; Set the hUpdateVRAMFlag flag to $2, for "in progress"
+  ld A, $2 ; in progress
+  ldh [hUpdateVRAMFlag], A ; set flag
+  jr .skip
+.complete
+  ld A, $0 ; in progress
+  ldh [hUpdateVRAMFlag], A ; set flag
+  ld SP, HL ; restore the stack pointer for safety
+.skip
   ret
 
 ;-------------------------------
@@ -841,8 +914,15 @@ SaveVRAMQueueSlot:
   ld [wQueuePtr+1], A
   ret
 
+ResetVRAMQueue:
+  ld A, LOW(wQueue)
+  ld [wQueuePtr], A
+  ld A, HIGH(wQueue)
+  ld [wQueuePtr+1], A
+  ret
+  
 ConcludeVRAMQueue:
-  ldh A, [hQueueCount]
+  ldh A, [hUpdateVRAMFlag]
   or A
   jr z, :+ ; only do this if there's something to do
 
@@ -873,7 +953,7 @@ PushVRAMQueue:
 	; DON'T set the queue-ready flag until AFTER the tile is added
 	;
 	;ld	A,	C		; get last-tile flag again
-	;ldh	[hQueueCount], A	; inform V-blank of queue if last tile
+	;ldh	[hUpdateVRAMFlag], A	; inform V-blank of queue if last tile
 	ret
 
 ;-------------------------------
@@ -886,9 +966,8 @@ PushVRAMUpdate::
   xor C
   call PushVRAMQueue
   call SaveVRAMQueueSlot
-	ldh	A, [hQueueCount]
-  inc A
-	ldh	[hQueueCount], A
+	ld	A, $1
+	ldh	[hUpdateVRAMFlag], A
   ret
 ; ----------------------------
 
@@ -995,8 +1074,7 @@ hFrameCounter:
 	db
 hGameState:
 	db
-
-hQueueCount: 
+hUpdateVRAMFlag: 
   db
 
 SECTION "Constants", ROM0
