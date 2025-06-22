@@ -480,7 +480,7 @@ DrawCard:
   ld c, a ; c for card value, we save it before decoding
   swap a
   and a, $0F ; check the suit to see if a card is present
-  ld e, a
+  ld e, a ; save the suit
   jr z, .skipCard
 .getPosition
   ; add a, a for an address word table, we multiple by two, 
@@ -497,10 +497,10 @@ DrawCard:
   ld l, a
   call DrawCardBorder ; DrawCardBorder preserves HL, so we can do it here
   push hl ; preserve it for ourselves to reuse late
-  ld    a, SUIT_OFFSET
+  ld    a, SUIT_OFFSET ; TODO: this area is still writing to VRAM directly!
   call AddByteToHL
-  ld a, e
-  add a, $4B
+  ld a, e ; e = card suit?
+  add a, $4B ; 
   ld [hl], a
 .drawCardValue
   pop hl
@@ -606,7 +606,7 @@ ClearCardBorder:
   ld L, 5
   ld B, 0
 :
-  push HL
+  push HL ; updates clobber L, which we need to maintain
   call PushVRAMUpdate
   inc DE
   call PushVRAMUpdate
@@ -644,6 +644,64 @@ ClearCardBorderOld:
   ret
 ; ---------------------------
 DrawCardBorder:
+  push BC
+  push DE
+  push HL
+  ld D, H
+  ld E, L
+
+  ld C, 0
+
+; row 1
+  ld B, $53
+  call PushVRAMUpdate
+  inc DE
+  ld B, $54
+  call PushVRAMUpdate
+  inc DE
+  call PushVRAMUpdate
+  inc DE
+  ld B, $55
+  call PushVRAMUpdate
+
+  ld A, E
+  add A, $1D
+  ld E, A
+
+  ld L, 3 ; 3 middle rows for border
+:
+  push HL
+  ld B, $63
+  call PushVRAMUpdate
+  inc E
+  inc E
+  inc E
+  call PushVRAMUpdate
+  ; carriage return
+  ld A, E
+  add A, $1D
+  ld E, A
+  pop HL
+  dec L
+  jr nz, :-
+  ;final row
+  ld B, $73
+  call PushVRAMUpdate
+  inc DE
+  ld B, $74
+  call PushVRAMUpdate
+  inc DE
+  call PushVRAMUpdate
+  inc DE
+  ld B, $75
+  call PushVRAMUpdate
+
+  pop HL
+  pop DE
+  pop BC
+  ret
+
+DrawCardBorderOld:
 ; draw card border
   ; row one corner
   push hl
