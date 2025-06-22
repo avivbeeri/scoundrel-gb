@@ -94,16 +94,16 @@ EntryPoint:
 
   ; Set up the VRAM update queue
   ld d, 0
-  ld bc, (255 * 3)
+  ld bc, (256 * 4)
   ld hl, wQueue
   call Memset
 
   xor a
-  ld [wQueueCount], a
+  ld [hQueueCount], a
   ld a, LOW(wQueue)
-  ld [wQueueSlot], a
+  ld [wQueuePtr], a
   ld a, HIGH(wQueue)
-  ld [wQueueSlot+1], a
+  ld [wQueuePtr+1], a
 
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
@@ -444,13 +444,12 @@ DrawCursorSprites:
 DrawCard:
   ; PRE: Put card index into A
   ld d, a ; save a copy for future lookups
-  ; add a, a for an address word table, we multiple by two, 
+  ; get the value for the card from the list
   add a, LOW(wCards)
   ld l, a
   adc HIGH(wCards)
   sub l
   ld h, a
-  ; dereference
   ld a, [hl]
 
   ld c, a ; c for card value, we save it before decoding
@@ -777,30 +776,68 @@ BCDSplit::
 ; ----------------------------
 
 ReadVRAMUpdate::
-  ld hl, wQueue
-  ld a, [wQueueCount]
-  ld c, a ;
-  inc c
-.loop
-  dec c
-  jr z, :+
+; Using stack operations to read the queue is faster, so we save the stack pointer in HL
+  ld HL, SP+0      
+  ld SP, wQueue
 
-  ld a, [HLI]
-  ld e, a
-  ld a, [HLI]
-  ld d, a
-  ld a, [HLI]
-  ld [DE], a
-  jr .loop
+  ldh A, [hQueueCount]
+  ld C, A;
+  inc C
+.loop
+  dec C
+  jr Z, :+
+
+  pop DE ; pop the VRAM address
+  pop AF ; Pop the tile value and flags ($80 will eventually be end of list)
+  ld [DE], A
+  jr nz, .loop
 :
-  xor a
-  ld [wQueueCount], a
-  ld a, LOW(wQueue)
-  ld [wQueueSlot], a
-  ld a, HIGH(wQueue)
-  ld [wQueueSlot+1], a
+  ld SP, HL ; restore the stack pointer for safety
+  xor A
+  ldh [hQueueCount], A
+  ld A, LOW(wQueue)
+  ld [wQueuePtr], A
+  ld A, HIGH(wQueue)
+  ld [wQueuePtr+1], A
 
   ret
+
+;-------------------------------
+; HL: queue slot
+; DE: VRAM addr
+; B: tile-value to set
+; C : $00 for regular, $80 for final item
+GetVRAMQueueSlot:
+  ld A, [wQueuePtr]
+  ld L, A
+  ld A, [wQueuePtr+1]
+  ld H, A
+  ret
+
+SaveVRAMQueueSlot:
+  ld A, L
+  ld [wQueuePtr], A
+  ld A, H
+  ld [wQueuePtr+1], A
+  ret
+
+; Returns HL- new queue slot
+PushVRAMQueue:
+	ld	A,	E		    ; VRAM lo-byte
+	ld	[HL+],	A		; write to queue and advance
+	ld	A,	D		    ; VRAM hi-byte
+	ld	[HL+],	A		; write to queue and advance
+	ld	A,	C		    ; CPU flags (last-tile flag)
+	ld	[HL+],	A		; write to queue and advance
+	ld	A,	B		    ; tile-value
+	ld	[HL+],	A		; write and advance
+
+	; since V-blank could interrupt whilst the queue is being added to,
+	; DON'T set the queue-ready flag until AFTER the tile is added
+	;
+	;ld	A,	C		; get last-tile flag again
+	;ldh	[hQueueCount], A	; inform V-blank of queue if last tile
+	ret
 
 ;-------------------------------
 ;
@@ -808,27 +845,13 @@ ReadVRAMUpdate::
 ; b - value to write
 ; clobbers HL
 PushVRAMUpdate::
-  ld a, [wQueueSlot]
-  ld l, a
-  ld a, [wQueueSlot+1]
-  ld h, a
-
-  ld [hl], e
-  inc hl
-  ld [hl], d
-  inc hl
-  ld [hl], b
-  inc hl
-
-  ld a, l
-  ld [wQueueSlot], a
-  ld a, h
-  ld [wQueueSlot+1], a
-
-  ld a, [wQueueCount]
-  inc a
-  ld [wQueueCount], a
-
+  call GetVRAMQueueSlot
+  xor C
+  call PushVRAMQueue
+  call SaveVRAMQueueSlot
+	ldh	A, [hQueueCount]
+  inc A
+	ldh	[hQueueCount], A
   ret
 ; ----------------------------
 
@@ -898,7 +921,7 @@ ENDL
 DMARoutineEnd:
 
 
-SECTION "Game Data", WRAMX, ALIGN[8]
+SECTION "Game Data", WRAM0, ALIGN[8]
 ; These are used for tracking input
 wCurKeys: DB
 wNewKeys: DB
@@ -915,10 +938,29 @@ wDeck: DS 46
 wDeckTop: DW
 wDeckBottom: DW
 
-SECTION "VRAM Update Queue",WRAM0[$C0A0]
-wQueueCount: DB
-wQueueSlot: DW
-wQueue: DS (255 * 3)
+SECTION "VRAM Update Queue",WRAM0, ALIGN[8]
+wQueue: DS (256 * 4)
+wQueuePtr: DW
+
+SECTION "Shadow OAM", WRAM0, ALIGN[8]
+; Cursor sprites for Deck
+; 50 08 2F 00
+; 50 22 2F 20
+; 70 08 2F 40
+; 70 22 2F 60
+wShadowOAM::
+  ds 160
+
+SECTION "Fast vars", HRAM
+hVBlankFlag:
+	db
+hFrameCounter:
+	db
+hGameState:
+	db
+
+hQueueCount: 
+  db
 
 SECTION "Constants", ROM0
 
@@ -1012,19 +1054,3 @@ TitleTilemap:
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 TitleTilemapEnd:
 
-SECTION "Shadow OAM", WRAM0, ALIGN[8]
-; Cursor sprites for Deck
-; 50 08 2F 00
-; 50 22 2F 20
-; 70 08 2F 40
-; 70 22 2F 60
-wShadowOAM::
-  ds 160
-
-SECTION "Fast vars", HRAM
-hVBlankFlag:
-	db
-hFrameCounter:
-	db
-hGameState:
-	db
