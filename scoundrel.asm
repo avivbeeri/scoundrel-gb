@@ -147,6 +147,7 @@ GameLoop:
   call DrawTitleState
   ; Default to the title screen
 .endGameLoop
+  call ConcludeVRAMQueue
  
 	jp GameLoop
 
@@ -781,20 +782,39 @@ ReadVRAMUpdate::
   ld SP, wQueue
 
   ldh A, [hQueueCount]
-  ld C, A;
+  ld C, A
   inc C
 .loop
   dec C
-  jr Z, :+
+  jr Z, .complete
+
+  ldh A, [$FF41]     ; STAT Register
+  and A, STATF_BUSY
+  jr nz, .pauseUpdate
 
   pop DE ; pop the VRAM address
   pop AF ; Pop the tile value and flags ($80 will eventually be end of list)
   ld [DE], A
   jr nz, .loop
-:
+  ; fallthrough
+  jr .complete
+
+.pauseUpdate
+  ; vblank ended or hblank ending
+  ; we should pause so we can resume
+  push HL ; preserve our stack pointer on the stack (this overwrites stale queue data now)
+  ld HL, SP+0 ; get the current queue position
+  ld A, L
+  ld [wQueuePtr], A
+  ld A, H
+  ld [wQueuePtr + 1], A
+  ; restore the stack pointer to HL
+  pop HL
+  
+.complete
   ld SP, HL ; restore the stack pointer for safety
   xor A
-  ldh [hQueueCount], A
+  ldh [hQueueCount], A ; reset the flag ; we could do this elsewhere
   ld A, LOW(wQueue)
   ld [wQueuePtr], A
   ld A, HIGH(wQueue)
@@ -819,6 +839,23 @@ SaveVRAMQueueSlot:
   ld [wQueuePtr], A
   ld A, H
   ld [wQueuePtr+1], A
+  ret
+
+ConcludeVRAMQueue:
+  ldh A, [hQueueCount]
+  or A
+  jr z, :+ ; only do this if there's something to do
+
+  ld A, [wQueuePtr]
+  ld L, A
+  ld A, [wQueuePtr+1]
+  ld H, A
+  dec HL
+  dec HL
+  ld A, $80
+  ld [HL], A
+  
+:
   ret
 
 ; Returns HL- new queue slot
