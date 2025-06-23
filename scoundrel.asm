@@ -78,7 +78,7 @@ SECTION "Header", ROM0[$100]
 
 EntryPoint:
   di
-  ld SP, $DFFE ; reposition the stack pointer to the end of WRAM
+  ld SP, $E000 ; reposition the stack pointer to the end of WRAM
 
   call CopyDMARoutine
 
@@ -540,83 +540,23 @@ DrawCard:
 .complete
   ret
 ; ----------------
-DrawCardOld:
-  ; PRE: Put card index into A
-  ld d, a ; save a copy for future lookups
-  ; get the value for the card from the list
-  add a, LOW(wCards)
-  ld l, a
-  adc HIGH(wCards)
-  sub l
-  ld h, a
-  ld a, [hl]
-
-  ld c, a ; c for card value, we save it before decoding
-  swap a
-  and a, $0F ; check the suit to see if a card is present
-  ld e, a ; save the suit
-  jr z, .skipCard
-.getPosition
-  ; add a, a for an address word table, we multiple by two, 
-  ld a, d
-  add a, a ; multiply by 2
-  add a, LOW(CARD_LUT)
-  ld l, a
-  adc HIGH(CARD_LUT)
-  sub l
-  ld h, a
-  ; dereference
-  ld a, [hli]
-  ld h, [hl]
-  ld l, a
-  call DrawCardBorder ; DrawCardBorder preserves HL, so we can do it here
-  push hl ; preserve it for ourselves to reuse late
-  ld    a, SUIT_OFFSET ; TODO: this area is still writing to VRAM directly!
-  call AddByteToHL
-  ld a, e ; e = card suit?
-  add a, $4B ; 
-  ld [hl], a
-.drawCardValue
-  pop hl
-  ld    a, ONES_OFFSET
-  call AddByteToHL
-  ld a, c
-  and a, $0F ; check the suit to see if a card is present
-  call BCDSplit
-  ; ld hl, CARD_WEAPON + ONES_OFFSET
-  inc a
-  ld [hld], a
-  ld a, b
-  inc a
-  ld [hl], a
-
-  jr .drawCardComplete
-.skipCard
-  ld a, d
-  add a, a ; multiply by 2
-  add a, LOW(CARD_LUT)
-  ld l, a
-  adc HIGH(CARD_LUT)
-  sub l
-  ld h, a
-  ; dereference
-  ld a, [hli]
-  ld h, [hl]
-  ld l, a
-  call ClearCardBorder
-.drawCardComplete
-  ret
 ; ---------------------------
 DrawDeckTotal:
-  ld hl, DECK_ONES
-  ld a, [wDeckSize]
+  ld C, 0
+  ld DE, DECK_TENS
+
+  ld A, [wDeckSize]
   call BCDSplit
-  ; ld hl, CARD_WEAPON + ONES_OFFSET
-  inc a
-  ld [hld], a
-  ld a, b
-  inc a
-  ld [hl], a
+  inc A ; increment to get tile index from number
+  inc B
+  ldh [hCardOnes], A ; preserve A for later
+  call PushVRAMUpdate
+
+  inc DE ; move to OnesPlace
+  ldh A, [hCardOnes]
+  ld B, A
+  call PushVRAMUpdate
+
   ret
 ; ---------------------------
 DrawHealthBar:
@@ -698,21 +638,6 @@ ClearCardBorder:
   pop BC
   ret
 
-ClearCardBorderOld:
-   ld B, 5
-:
-   xor a, a
-   ld [hli], a
-   ld [hli], a
-   ld [hli], a
-   ld [hli], a
-   ld a, l
-   add a, $1C
-   ld l, a
-   dec b
-   jr nz, :-
-.clearCardEnd
-  ret
 ; ---------------------------
 DrawCardBorder:
   push BC
@@ -768,49 +693,6 @@ DrawCardBorder:
   pop BC
   ret
 
-DrawCardBorderOld:
-; draw card border
-  ; row one corner
-  push hl
-  ld a, $53
-  ld [hli], a
-  ld a, $54
-  ld [hli], a
-  ld a, $54
-  ld [hli], a
-  ld a, $55
-  ld [hl], a
-  ; row 2
-  ld a, l
-  add a, $1D
-  ld l, a
-
-  ld b, 3
-:
-  ld a, $63
-  ld [hl], a
-  ld a, l
-  add a, $03
-  ld l, a
-  ld a, $65
-  ld [hl], a
-  ld a, l
-  add a, $1D
-  ld l, a
-  dec b
-  jr nz, :-
-  ; final row
-  ld a, $73
-  ld [hli], a
-  ld a, $74
-  ld [hli], a
-  ld a, $74
-  ld [hli], a
-  ld a, $75
-  ld [hl], a
-  pop hl
-  ret
-
 ; ----------------------------
 ; b - suit
 ; c - count of cards in suit
@@ -823,16 +705,6 @@ InitSuit:
   jr nz, InitSuit
   ret
 ; ----------------------------
-; row 0 -> 1
-; 0 -> 3
-; 1 -> 0
-; 2 -> 1
-; 3 -> 1
-
-; row 1 -> 0
-; 0 -> 1
-; 1 -> 2
-; 2 -> 0
 MoveCursorRow:
   ld a, [wCursor]
   cp a, 4
