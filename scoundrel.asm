@@ -16,6 +16,12 @@ VBlankHandler:
 	; Now we just have to `pop` those registers and return!
 ; Make sure to use `ldh` for HRAM and registers, and not a regular `ld`
 
+	ld a, %11100100
+	ldh [rBGP], a
+
+  ld A, STATF_LYC
+  ldh [rSTAT], A
+
 	ldh a, [hFrameCounter]
 	inc a
 	ldh [hFrameCounter], a
@@ -43,7 +49,7 @@ HBlankInterrupt:
 SECTION "STAT Handler", ROM0
 StatHandler:
   ldh A, [rSTAT]
-  and A, STATB_LYCF
+  and A, STATF_LYCF
   jr z, :+
   call WaitForHBlank
 	ld a, %00011011
@@ -155,9 +161,6 @@ GameLoop:
   call PauseForVBlank
   call ResetVRAMQueue
 
-	ld a, %11100100
-	ldh [rBGP], a
-
   call UpdateKeys
 
   ; Check which game state we're in
@@ -233,7 +236,7 @@ InitGameState:
   ld [hli], a
   ld a, HIGH(wDeck)
   ld [hl], a
-  ld A, STATF_LYC | STATF_MODE00
+  ld A, STATF_LYC
   ldh [rSTAT], A
 
   ; Enable the VBLANK interrupt
@@ -256,17 +259,17 @@ InitGameState:
 
   ; shuffle the deck
   ; Set up rendering
-  ld hl, CARD_ROOM_0 ; room card 1
+  ld DE, CARD_ROOM_0 ; room card 1
   call ClearCardBorder
-  ld hl, CARD_ROOM_1 ; room card 2
+  ld DE, CARD_ROOM_1 ; room card 2
   call ClearCardBorder
-  ld hl, CARD_ROOM_2 ; room card 3
+  ld DE, CARD_ROOM_2 ; room card 3
   call ClearCardBorder
-  ld hl, CARD_ROOM_3 ; room card 4
+  ld DE, CARD_ROOM_3 ; room card 4
   call ClearCardBorder
-  ld hl, CARD_WEAPON ; weapon card corner
+  ld DE, CARD_WEAPON ; weapon card corner
   call ClearCardBorder
-  ld hl, CARD_MONSTER ; weapon monster card
+  ld DE, CARD_MONSTER ; weapon monster card
   call ClearCardBorder
 
   ; we're ready now
@@ -468,6 +471,77 @@ DrawCursorSprites:
 ; ---------------------------
 DrawCard:
   ; PRE: Put card index into A
+  ldh [hCardIndex], A
+  add A, LOW(wCards)
+  ld L, A
+  adc HIGH(wCards)
+  sub L
+  ld H, A
+  ld A, [hl]
+  ldh [hCardValue], A ; save the card data, [Suit-Value]
+.getVRAMPosition
+  ldh A, [hCardIndex]
+  add A, A ; multiply by 2
+  add A, LOW(CARD_LUT)
+  ld L, A
+  adc HIGH(CARD_LUT)
+  sub L
+  ld H, A
+  ; HL now contains the array address for card vram
+
+  ; Dereference [HL] -> DE
+  ld A, [HLI]
+  ld D, [HL]
+  ld E, A
+
+.getCardValues
+  ldh A, [hCardValue]
+  ld B, A
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  jr z, .skipCard
+
+  ldh [hCardSuit], A ; save the suit
+  ld A, B 
+  and A, $0F ; get value to split into Tens-Ones
+  call BCDSplit ; A is ones, B is 10s
+  inc A
+  ldh [hCardOnes], A
+  ld A, B
+  inc A
+  ldh [hCardTens], A
+.drawCardBorder
+  ; we need to use the address in DE twice more, so we preserve it twice on the stack
+  push DE
+  push DE
+  call DrawCardBorder
+  pop DE
+.drawCardSuit
+  ld A, SUIT_OFFSET
+  call AddByteToDE
+  ldh A, [hCardSuit]
+  add A, $4B
+  ld B, A
+  call PushVRAMUpdate
+.drawCardValue
+  pop DE
+  ld A, TENS_OFFSET
+  call AddByteToDE
+  ldh A, [hCardTens] ; TODO: check if card is actually present and clear it?
+  ld B, A
+  call PushVRAMUpdate
+  inc DE
+  ldh A, [hCardOnes]
+  ld B, A
+  call PushVRAMUpdate
+  jr .complete
+.skipCard
+  call ClearCardBorder
+.complete
+  ret
+; ----------------
+DrawCardOld:
+  ; PRE: Put card index into A
   ld d, a ; save a copy for future lookups
   ; get the value for the card from the list
   add a, LOW(wCards)
@@ -597,9 +671,6 @@ DrawHealthBar:
 
 ; ---------------------------
 ClearCardBorder:
-  ld D, H
-  ld E, L
-
   push BC
   push DE
   push HL
@@ -645,10 +716,7 @@ ClearCardBorderOld:
 ; ---------------------------
 DrawCardBorder:
   push BC
-  push DE
   push HL
-  ld D, H
-  ld E, L
 
   ld C, 0
 
@@ -697,7 +765,6 @@ DrawCardBorder:
   call PushVRAMUpdate
 
   pop HL
-  pop DE
   pop BC
   ret
 
@@ -882,6 +949,16 @@ AddByteToHL::
   ld    h, a
   ret
 
+; Add A to DE, unsigned addition
+; https://www.plutiedev.com/z80-add-8bit-to-16bit
+AddByteToDE::
+  add   a, e    ; A = A+E
+  ld    e, a    ; E <= (A+E)
+  adc   a, d    ; A = (A+E)+D+carry
+  sub   e       ; A = D + carry
+  ld    d, a    ; D <= A
+  ret
+
 ; ----------------------------
   ; Take a value and split it into 
   ; in: a: value <100
@@ -945,6 +1022,8 @@ ReadVRAMUpdate::
   ; Set the hUpdateVRAMFlag flag to $2, for "in progress"
   ld A, $2 ; in progress
   ldh [hUpdateVRAMFlag], A ; set flag
+  ld A, STATF_LYC | STATF_MODE00
+  ldh [rSTAT], A
   jr .skip
 .complete
   ld A, $0 ; in progress
@@ -1134,6 +1213,13 @@ hGameState:
 	db
 hUpdateVRAMFlag: 
   db
+
+; Temp vars
+hCardIndex: db
+hCardSuit: db
+hCardValue: db
+hCardOnes: db
+hCardTens: db
 
 SECTION "Constants", ROM0
 
