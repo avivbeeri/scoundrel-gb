@@ -19,7 +19,7 @@ VBlankHandler:
 	ld a, %11100100
 	ldh [rBGP], a
 
-  ld A, STATF_LYC
+  ld A, STAT_LYC
   ldh [rSTAT], A
 
 	ldh a, [hFrameCounter]
@@ -49,7 +49,7 @@ HBlankInterrupt:
 SECTION "STAT Handler", ROM0
 StatHandler:
   ldh A, [rSTAT]
-  and A, STATF_LYCF
+  and A, STAT_LYCF
   jr z, :+
   call WaitForHBlank
 	ld a, %00011011
@@ -87,7 +87,7 @@ EntryPoint:
 	ld [rNR52], a
 
   ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK
+  ld a, IE_VBLANK
 	ldh [rIE], a
 
   ; Clear rIF for safety
@@ -140,7 +140,7 @@ EntryPoint:
   inc A
   ldh [rWY], A
 
-  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJOFF | LCDCF_WINOFF
+  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_OFF | LCDC_WIN_OFF
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
 
 
@@ -236,11 +236,11 @@ InitGameState:
   ld [hli], a
   ld a, HIGH(wDeck)
   ld [hl], a
-  ld A, STATF_LYC
+  ld A, STAT_LYC
   ldh [rSTAT], A
 
   ; Enable the VBLANK interrupt
-  ld a, IEF_VBLANK | IEF_STAT
+  ld a, IE_VBLANK | IE_STAT
 	ldh [rIE], a
 
 	ld a, 0
@@ -276,7 +276,7 @@ InitGameState:
   ; enable the background
   ; enable the window
   ; turn on the display
-  ld a, LCDCF_ON | LCDCF_BLK01 | LCDCF_BGON | LCDCF_OBJON | LCDCF_WINON | LCDCF_WIN9C00
+  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_ON | LCDC_WIN_9C00
   ldh [rLCDC], a      
 
 	ld a, %11100100
@@ -291,19 +291,19 @@ InitGameState:
 DrawGameState:
 
   ld a, [wNewKeys]
-  and a, PADF_UP | PADF_DOWN
+  and a, PAD_UP | PAD_DOWN
   jr z, :+
   call MoveCursorRow
 :
 
   ld a, [wNewKeys]
-  and a, PADF_LEFT
+  and a, PAD_LEFT
   jr z, :+
   call MoveCursorLeft
 :
 
   ld a, [wNewKeys]
-  and a, PADF_RIGHT
+  and a, PAD_RIGHT
   jr z, :+
   call MoveCursorRight
 :
@@ -382,7 +382,7 @@ DrawTitleState:
 
 
   ld a, [wCurKeys]
-  and a, PADF_A | PADF_B | PADF_START
+  and a, PAD_A | PAD_B | PAD_START
   jr z, .complete
 .beginGame
   ; Change game state to GAME (1)
@@ -773,7 +773,7 @@ PauseForVBlank::
 WaitForHBlank::
 .wait
   ldh A, [rSTAT]
-  and A, STATF_BUSY
+  and A, STAT_BUSY
   jr nz, .wait
   ret
 
@@ -875,7 +875,7 @@ ReadVRAMUpdate::
   ld SP, wQueue
 .loop
   ldh A, [$FF41]     ; STAT Register
-  and A, STATF_BUSY
+  and A, STAT_BUSY
   jr nz, .pauseUpdate
 
   pop DE ; pop the VRAM address
@@ -894,7 +894,7 @@ ReadVRAMUpdate::
   ; Set the hUpdateVRAMFlag flag to $2, for "in progress"
   ld A, $2 ; in progress
   ldh [hUpdateVRAMFlag], A ; set flag
-  ld A, STATF_LYC | STATF_MODE00
+  ld A, STAT_LYC | STAT_MODE_0
   ldh [rSTAT], A
   jr .skip
 .complete
@@ -983,20 +983,20 @@ PushVRAMUpdate::
 ; ----------------------------
 UpdateKeys::
   ; Poll half the controller
-  ld a, P1F_GET_BTN
+  ld a, JOYP_GET_BUTTONS
   call .onenibble
   ld b, a ; B7-4 = 1; B3-0 = unpressed buttons
 
   ; Poll the other half
-  ld a, P1F_GET_DPAD
+  ld a, JOYP_GET_CTRL_PAD
   call .onenibble
   swap a ; A7-4 = unpressed directions; A3-0 = 1
   xor a, b ; A = pressed buttons + directions
   ld b, a ; B = pressed buttons + directions
 
   ; And release the controller
-  ld a, P1F_GET_NONE
-  ldh [rP1], a
+  ld a, JOYP_GET_NONE
+  ldh [rJOYP], a
 
   ; Combine with previous wCurKeys to make wNewKeys
   ld a, [wCurKeys]
@@ -1008,11 +1008,11 @@ UpdateKeys::
   ret
 
 .onenibble
-  ldh [rP1], a ; switch the key matrix
+  ldh [rJOYP], a ; switch the key matrix
   call .knownret ; burn 10 cycles calling a known ret
-  ldh a, [rP1] ; ignore value while waiting for the key matrix to settle
-  ldh a, [rP1]
-  ldh a, [rP1] ; this read counts
+  ldh a, [rJOYP] ; ignore value while waiting for the key matrix to settle
+  ldh a, [rJOYP]
+  ldh a, [rJOYP] ; this read counts
   or a, $F0 ; A7-4 = 1; A3-0 = unpressed keys
 .knownret
   ret
