@@ -610,6 +610,8 @@ DrawHealthBar:
   ret
 
 ; ---------------------------
+; DE - VRAM pointer to card
+; clobbers HL, DE, BC
 ClearCardBorder:
   push BC
   push DE
