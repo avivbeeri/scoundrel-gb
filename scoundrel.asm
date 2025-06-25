@@ -135,7 +135,7 @@ EntryPoint:
 	; Turn the LCD on
   ; Combine flag constants defined in hardware.inc into a single value with logical ORs and load it into A
   ; Note that some of these constants (LCDCF_OBJOFF, LCDCF_WINOFF) are zero, but are included for clarity
-  ld A, 136 - WX_OFS
+  ld A, 134 - WX_OFS
   ldh [rLYC], A ; this is a line prior so we can pull some HBlank trickery
   inc A
   ldh [rWY], A
@@ -150,7 +150,7 @@ EntryPoint:
 
   ; Initialize data to 0
   ld a, 0
-	ldh [hGameState], a
+	ldh [hSceneState], a
 	ldh [hFrameCounter], a
   ld [wCurKeys], a
   ld [wNewKeys], a
@@ -164,7 +164,7 @@ GameLoop:
   call UpdateKeys
 
   ; Check which game state we're in
-  ldh a, [hGameState]
+  ldh a, [hSceneState]
   cp a, 1 ; 1 = Game
   jp nz, .skipGame
   call DrawGameState
@@ -252,9 +252,9 @@ InitGameState:
   ld hl, $9800
   call MemCopy
 
-	ld de, WindowTilemap
-	ld hl, $9C00
-	ld bc, WindowTilemapEnd - WindowTilemap
+	ld de, HealthTilemap
+	ld hl, $9A00
+	ld bc, HealthTilemapEnd - HealthTilemap
   call MemCopy
 
   ; shuffle the deck
@@ -276,7 +276,7 @@ InitGameState:
   ; enable the background
   ; enable the window
   ; turn on the display
-  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_ON | LCDC_WIN_9C00
+  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_OFF | LCDC_WIN_9C00
   ldh [rLCDC], a      
 
 	ld a, %11100100
@@ -387,7 +387,7 @@ DrawTitleState:
 .beginGame
   ; Change game state to GAME (1)
   ld a, 1
-	ldh [hGameState], a
+	ldh [hSceneState], a
 
   call InitGameState
 .complete:
@@ -1083,6 +1083,8 @@ hVBlankFlag:
 	db
 hFrameCounter:
 	db
+hSceneState:
+	db
 hGameState:
 	db
 hUpdateVRAMFlag: 
@@ -1100,9 +1102,9 @@ SECTION "Constants", ROM0
 def START_TEXT_LEN equ 10
 StartText: DB "Push Start"
 
-def HEALTH_FIRST_HEART equ $9C0C
-def HEALTH_TENS equ $9C0E
-def HEALTH_ONES equ $9C0F
+def HEALTH_FIRST_HEART equ $9A0C
+def HEALTH_TENS equ $9A0E
+def HEALTH_ONES equ $9A0F
 
 def WEAPON_SUIT equ $9927
 def WEAPON_TENS equ $9967
@@ -1139,10 +1141,10 @@ SECTION "Tile data", ROM0
 Tiles: INCBIN "tiles.bin"
 TilesEnd:
 
-SECTION "Window Tilemap", ROM0
-WindowTilemap:
-	db  $00, $00, $00, $00, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $00, $00, $00, $0F, $03, $01, $00
-WindowTilemapEnd:
+SECTION "HealthBar Tilemap", ROM0
+HealthTilemap:
+	db  $00, $00, $00, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $4A, $00, $00, $00, $0F, $03, $01, $00
+HealthTilemapEnd:
 SECTION "Game Tilemap", ROM0
 GameTilemap:
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
