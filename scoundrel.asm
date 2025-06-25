@@ -193,6 +193,7 @@ InitGameState:
   ld [wRunFlag], a
   ld [wCursor], a
   ld [wCardFlags], a
+  ldh [hGameState], a
 
   ; set room
   ld d, 0
@@ -244,7 +245,7 @@ InitGameState:
 	ldh [rIE], a
 
 	ld a, 0
-	ldh [rLCDC], a
+	ldh [rLCDC], a ; LCD Off
 
   ; Setup the game board
 	ld de, GameTilemap
@@ -257,6 +258,7 @@ InitGameState:
 	ld bc, HealthTilemapEnd - HealthTilemap
   call MemCopy
 
+  call ResetVRAMQueue
   ; shuffle the deck
   ; Set up rendering
   ld DE, CARD_ROOM_0 ; room card 1
@@ -271,6 +273,10 @@ InitGameState:
   call ClearCardBorder
   ld DE, CARD_MONSTER ; weapon monster card
   call ClearCardBorder
+
+
+  call ConcludeVRAMQueue
+  call ReadVRAMUpdate
 
   ; we're ready now
   ; enable the background
