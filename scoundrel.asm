@@ -228,8 +228,9 @@ InitGameState:
   ld b, $30 ; suit
   call InitSuit
 
-  ld a, 46
+  ld a, 44
   ld [wDeckSize], a
+
 
   ld hl, wDeckTop
   ld a, LOW(wDeck)
@@ -243,6 +244,10 @@ InitGameState:
   ld [hli], a
   ld a, HIGH(wDeck)
   ld [hl], a
+
+  call ShuffleDeck
+
+  ; Display set up
   ld A, STAT_LYC
   ldh [rSTAT], A
 
@@ -713,6 +718,42 @@ DrawCardBorder:
   ret
 
 ; ----------------------------
+ShuffleDeck:
+  ; Assumes wDeck is aligned on boundary
+  ; so we can index by the low byte into the array
+  ld HL, wDeck + 43
+  ld DE, wDeck
+  ;
+  ;for (var i = deck.length - 1; i > 0; i--) {
+  ;  var j = Math.floor(Math.random() * (i + 1));
+  ;  var temp = deck[i];
+  ;  deck[i] = deck[j];
+  ;  deck[j] = temp;
+  ;}
+  ;
+.shuffleLoop 
+.jloop
+  call GetRandomByte ;
+  cp A, L
+  jr nc, .jloop
+  ld E, A
+  ; E is now j
+  ld A, [HL] 
+  ld B, A ; temp = deck[i]
+
+  ld A, [DE]
+  ld [HL], A ; deck[i] = deck[j]
+
+  ld A, B
+  ld [DE], A ; deck[j] = temp
+
+  dec L
+  jr nz, .shuffleLoop
+.exit
+  ret
+
+; ----------------------------
+; ----------------------------
 ; b - suit
 ; c - count of cards in suit
 InitSuit:
@@ -1076,11 +1117,13 @@ wHealth: DB
 wRunFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
 
-wDeckSize: DB
-wDeck: DS 46
-
 wDeckTop: DW
 wDeckBottom: DW
+wDeckSize: DB
+
+SECTION "Deck",WRAM0, ALIGN[8]
+wDeck: DS 44
+
 
 SECTION "VRAM Update Queue",WRAM0, ALIGN[8]
 wQueue: DS (256 * 4)

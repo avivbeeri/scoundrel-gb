@@ -34,5 +34,6 @@ GetRandomByte::
   ldh [hRNGState], A
   ld A, B
   pop BC
+  dec A
   ret
 
