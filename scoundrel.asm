@@ -1,7 +1,13 @@
 INCLUDE "hardware.inc"
 INCLUDE "charmap.inc"
 
-; Define a new section and hard-code it to be at $0040.
+SECTION "Joypad Interrupt", ROM0[INT_HANDLER_JOYPAD]
+JoypadInterrupt:
+  push af
+  ldh A, [rLY]
+  ldh [hLY], A
+  pop af
+  reti
 SECTION "VBlank Interrupt", ROM0[INT_HANDLER_VBLANK]
 VBlankInterrupt:
 	; This instruction is equivalent to `ret` and `ei`
@@ -87,7 +93,7 @@ EntryPoint:
 	ld [rNR52], a
 
   ; Enable the VBLANK interrupt
-  ld a, IE_VBLANK
+  ld a, IE_VBLANK | IE_JOYPAD
 	ldh [rIE], a
 
   ; Clear rIF for safety
@@ -156,10 +162,6 @@ EntryPoint:
   ld [wNewKeys], a
   ld a, 1
   ldh [hRNGState], a
-  call GetRandomByte
-  call GetRandomByte
-  call GetRandomByte
-  call GetRandomByte
 
   ei
 
@@ -397,11 +399,6 @@ DrawTitleState:
   call Memset
 
 .end:
-
-  ldh A, [hRNGState]
-  inc A
-  ldh [hRNGState], A
-
 
   ld a, [wCurKeys]
   and a, PAD_A | PAD_B | PAD_START
@@ -1055,7 +1052,7 @@ UpdateKeys::
   ld b, a ; B = pressed buttons + directions
 
   ; And release the controller
-  ld a, JOYP_GET_NONE
+  ld a, JOYP_GET_BUTTONS
   ldh [rJOYP], a
 
   ; Combine with previous wCurKeys to make wNewKeys
@@ -1139,16 +1136,12 @@ wShadowOAM::
   ds 160
 
 SECTION "Fast vars", HRAM
-hVBlankFlag:
-	db
-hFrameCounter:
-	db
-hSceneState:
-	db
-hGameState:
-	db
-hUpdateVRAMFlag: 
-  db
+hVBlankFlag: db
+hFrameCounter: db
+hSceneState: db
+hGameState:	db
+hUpdateVRAMFlag: db
+hLY: db
 
 ; Temp vars
 hCardIndex: db

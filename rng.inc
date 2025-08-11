@@ -5,7 +5,10 @@ hRNGState: db
 
 SECTION "RNG Routine", ROM0
 InitRNGState::
-  ldh A, [hRNGState]
+  ldh A, [hFrameCounter]
+  ld B, A
+  ldh A, [hLY]
+  add A, B
   cp A, A
   jr nz, :+
   ld A, $AA ; fixed seed
