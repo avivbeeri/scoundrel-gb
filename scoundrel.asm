@@ -154,6 +154,12 @@ EntryPoint:
 	ldh [hFrameCounter], a
   ld [wCurKeys], a
   ld [wNewKeys], a
+  ld a, 1
+  ldh [hRNGState], a
+  call GetRandomByte
+  call GetRandomByte
+  call GetRandomByte
+  call GetRandomByte
 
   ei
 
@@ -277,6 +283,7 @@ InitGameState:
 
   call ConcludeVRAMQueue
   call ReadVRAMUpdate
+  call InitRNGState
 
   ; we're ready now
   ; enable the background
@@ -385,6 +392,10 @@ DrawTitleState:
   call Memset
 
 .end:
+
+  ldh A, [hRNGState]
+  inc A
+  ldh [hRNGState], A
 
 
   ld a, [wCurKeys]
@@ -1138,6 +1149,8 @@ CARD_LUT:
   dw CARD_WEAPON
   dw CARD_MONSTER
 
+STATE_TABLE:
+;  dw state_init
 ; TOP_ROW_CURSOR_OFFSET:
 ; db $20, $18
 
@@ -1195,3 +1208,4 @@ TitleTilemap:
 	db  $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 TitleTilemapEnd:
 
+INCLUDE "rng.inc"

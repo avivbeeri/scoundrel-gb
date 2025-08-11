@@ -4,7 +4,7 @@ scoundrel.gb: scoundrel.o
 	@rgblink -n scoundrel.sym -o scoundrel.gb scoundrel.o
 	@rgbfix -v --title="Scoundrel" -p 0xFF scoundrel.gb
 
-scoundrel.o: scoundrel.asm tiles.bin
+scoundrel.o: scoundrel.asm tiles.bin *.inc
 	@rgbasm -o scoundrel.o scoundrel.asm
 
 tiles.bin: assets/tiles.png
