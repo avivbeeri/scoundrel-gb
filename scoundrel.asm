@@ -1049,21 +1049,17 @@ PushVRAMUpdate::
 
 ; ----------------------------
 UpdateKeys::
-  ; Poll half the controller
-  ld a, JOYP_GET_BUTTONS
-  call .onenibble
-  ld b, a ; B7-4 = 1; B3-0 = unpressed buttons
 
-  ; Poll the other half
+
   ld a, JOYP_GET_CTRL_PAD
   call .onenibble
   swap a ; A7-4 = unpressed directions; A3-0 = 1
+  ld b, a ; B7-4 = unpressed buttons; B3-0 = 1
+
+  ld a, JOYP_GET_BUTTONS
+  call .onenibble
   xor a, b ; A = pressed buttons + directions
   ld b, a ; B = pressed buttons + directions
-
-  ; And release the controller
-  ld a, JOYP_GET_BUTTONS
-  ldh [rJOYP], a
 
   ; Combine with previous wCurKeys to make wNewKeys
   ld a, [wCurKeys]
