@@ -353,9 +353,45 @@ GameInit:
   ret
 
 GameDrawRoom:
+  ; Draw cards to fill the room
+  xor A 
+  ld C, 4
+  ; loop through four slots
+  ; if a slot is empty, check if there's a card in the deck to draw
+  ; if so, draw and insert.
+
+  ld DE, wCards
+.loopStart
+  ld A, [DE] ; card = cards[i]
+
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  jr nz, .loopDec
+   
+  call DrawCard
+  ; put card into A
+  ld [DE], A ; card[i] = drawCard(deck); i++
+  inc DE
+.loopDec
+  dec C
+  jr nz, .loopStart
+.loopExit
+
   ld A, STATE_SELECT
   ldh [hGameState], A
   ret
+
+
+; ---------------------------------
+DrawCard:
+  ld HL, wDeckTop
+  ld A, [HLI] 
+  ld L, [HL] 
+  ld H, A
+
+  ld A, [HL] ; A = deck[top]
+  ret
+; ---------------------------------
 GameEnd:
   ld A, 0
   ldh [hScene], A
@@ -402,7 +438,7 @@ UpdateCardGraphics:
   ld a, c
   cp a, 6 ; 0 - health 0 - deck 00 - bottom row 0000 - top row
   jr nc, :+
-  call DrawCard
+  call RenderCard
   jr .loopEnd
 :
   cp a, 6
@@ -532,7 +568,7 @@ DrawCursorSprites:
   ret
 
 ; ---------------------------
-DrawCard:
+RenderCard:
   ; PRE: Put card index into A
   ldh [hCardIndex], A
   add A, LOW(wCards)
@@ -573,20 +609,20 @@ DrawCard:
   ld A, B
   inc A
   ldh [hCardTens], A
-.drawCardBorder
+.renderCardBorder
   ; we need to use the address in DE twice more, so we preserve it twice on the stack
   push DE
   push DE
-  call DrawCardBorder
+  call RenderCardBorder
   pop DE
-.drawCardSuit
+.renderCardSuit
   ld A, SUIT_OFFSET
   call AddByteToDE
   ldh A, [hCardSuit]
   add A, $4B
   ld B, A
   call PushVRAMUpdate
-.drawCardValue
+.renderCardValue
   pop DE
   ld A, TENS_OFFSET
   call AddByteToDE
@@ -704,7 +740,7 @@ ClearCardBorder:
   ret
 
 ; ---------------------------
-DrawCardBorder:
+RenderCardBorder:
   push BC
   push HL
 
