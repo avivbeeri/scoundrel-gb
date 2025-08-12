@@ -11,6 +11,15 @@ MACRO ENUM_MEMBER
   def \1 rb
 ENDM
 
+; Setting up a game state enum
+ENUM STATE
+ENUM_MEMBER STATE_INIT 
+ENUM_MEMBER STATE_ROOM
+ENUM_MEMBER STATE_SELECT
+ENUM_MEMBER STATE_END  
+ENUM_MEMBER STATE_COUNT
+ENUM_END
+
 SECTION "Joypad Interrupt", ROM0[INT_HANDLER_JOYPAD]
 JoypadInterrupt:
   push af
@@ -166,7 +175,7 @@ EntryPoint:
 
   ; Initialize data to 0
   ld a, 0
-	ldh [hSceneState], a
+	ldh [hScene], a
 	ldh [hFrameCounter], a
   ld [wCurKeys], a
   ld [wNewKeys], a
@@ -181,23 +190,23 @@ GameLoop:
 
   call UpdateKeys
 
-  ; Check which game state we're in
-  ldh a, [hSceneState]
+  ; Check which scene we're in
+  ldh a, [hScene]
   cp a, 1 ; 1 = Game
   jp nz, .skipGame
-  call DrawGameState
+  call UpdateGameScene
   jp .endGameLoop
   ; Do game loop processing
 .skipGame
-  call DrawTitleState
+  call UpdateTitleScene
   ; Default to the title screen
+
 .endGameLoop
   call ConcludeVRAMQueue
- 
 	jp GameLoop
 
 ; ----------------------------
-InitGameState:
+InitGameScene:
 
 	; Turn the LCD off
   call WaitForVBlank
@@ -314,12 +323,45 @@ InitGameState:
 	ldh [rOBP1], a
 
   ei
+
+  ld a, $C0 ; Only update the deck count and health
+  ld [wCardFlags], a
+
   ret
 
 ; ----------------------------
 
-DrawGameState:
+; ----------------------------
+UpdateGameScene:
+  ldh A, [hGameState]
+  cp STATE_INIT
+  call z, GameInit
+  ldh A, [hGameState]
+  cp STATE_ROOM
+  call z, GameDrawRoom
+  ldh A, [hGameState]
+  cp STATE_SELECT
+  call z, GameSelectMove
+  ldh A, [hGameState]
+  cp STATE_END
+  call z, GameEnd
+  ret
 
+GameInit:
+  ld A, STATE_ROOM
+  ldh [hGameState], A
+  ret
+
+GameDrawRoom:
+  ld A, STATE_SELECT
+  ldh [hGameState], A
+  ret
+GameEnd:
+  ld A, 0
+  ldh [hScene], A
+  ret
+
+GameSelectMove:
   ld a, [wNewKeys]
   and a, PAD_UP | PAD_DOWN
   jr z, :+
@@ -339,17 +381,9 @@ DrawGameState:
 :
 
   call DrawCursorSprites
+  call UpdateCardGraphics
+  ret
 
-; render weapon value and suit
-
-;   ; map cursor row and index to a card index
-; GetSelectionIndex:
-;   ld a, [wCursor] ;id = 4
-;   ; if we've selected the deck, ignore this
-;   cp a, 4
-;   jr nz, :+
-;   ret
-; :
 
 UpdateCardGraphics:
   ld a, [wCardFlags]
@@ -387,7 +421,7 @@ UpdateCardGraphics:
 
 ; ----------------------------
 
-DrawTitleState:
+UpdateTitleScene:
   ldh a, [hFrameCounter]
 
   bit 5, a
@@ -414,11 +448,11 @@ DrawTitleState:
   and a, PAD_A | PAD_B | PAD_START
   jr z, .complete
 .beginGame
-  ; Change game state to GAME (1)
+  ; Change game scene to GAME (1)
   ld a, 1
-	ldh [hSceneState], a
+	ldh [hScene], a
 
-  call InitGameState
+  call InitGameScene
 .complete:
 
   ret
@@ -1142,12 +1176,12 @@ wShadowOAM::
   ds 160
 
 SECTION "Fast vars", HRAM
-hVBlankFlag: db
 hFrameCounter: db
-hSceneState: db
+hVBlankFlag: db
+hLY: db ; used for setting random seed
+hScene: db
 hGameState:	db
 hUpdateVRAMFlag: db
-hLY: db
 
 ; Temp vars
 hCardIndex: db
@@ -1192,17 +1226,8 @@ CARD_LUT:
   dw CARD_MONSTER
 
 
-; Setting up a game state enum
-ENUM STATE
-ENUM_MEMBER STATE_INIT 
-ENUM_MEMBER STATE_DRAW
-ENUM_MEMBER STATE_PLAY
-ENUM_MEMBER STATE_END  
-ENUM_MEMBER STATE_COUNT
-ENUM_END
 
 STATE_TABLE:
-  dw STATE_COUNT
 
 ; TOP_ROW_CURSOR_OFFSET:
 ; db $20, $18
