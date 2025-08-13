@@ -212,15 +212,91 @@ InitGameScene:
   call WaitForVBlank
   di
 
-;; init health
-  ld a, $14
-  ld [wHealth], a
 
   ld a, 0
   ld [wRunFlag], a
   ld [wCursor], a
   ld [wCardFlags], a
   ldh [hGameState], a
+
+   ; Display set up
+  ld A, STAT_LYC
+  ldh [rSTAT], A
+
+  ; Enable the VBLANK interrupt
+  ld a, IE_VBLANK | IE_STAT
+	ldh [rIE], a
+
+	ld a, 0
+	ldh [rLCDC], a ; LCD Off
+
+  ; Setup the game board
+	ld de, GameTilemap
+	ld bc, GameTilemapEnd - GameTilemap
+  ld hl, $9800
+  call MemCopy
+
+	ld de, HealthTilemap
+	ld hl, $9A00
+	ld bc, HealthTilemapEnd - HealthTilemap
+  call MemCopy
+
+  ; we're ready now
+  ; enable the background
+  ; enable the window
+  ; turn on the display
+  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_OFF | LCDC_WIN_9C00
+  ldh [rLCDC], a      
+
+	ld a, %11100100
+	ldh [rOBP0], a
+	ldh [rOBP1], a
+
+  ; shuffle the deck
+  ; Set up rendering
+  ld DE, CARD_ROOM_0 ; room card 1
+  call ClearCardBorder
+  ld DE, CARD_ROOM_1 ; room card 2
+  call ClearCardBorder
+  ld DE, CARD_ROOM_2 ; room card 3
+  call ClearCardBorder
+  ld DE, CARD_ROOM_3 ; room card 4
+  call ClearCardBorder
+  ld DE, CARD_WEAPON ; weapon card corner
+  call ClearCardBorder
+  ld DE, CARD_MONSTER ; weapon monster card
+  call ClearCardBorder
+
+  call ConcludeVRAMQueue
+  call ReadVRAMUpdate
+  ei
+  call PauseForVBlank
+  call PauseForVBlank
+  call ResetVRAMQueue
+ret
+
+; ----------------------------
+
+; ----------------------------
+UpdateGameScene:
+  ldh A, [hGameState]
+  cp STATE_INIT
+  call z, GameInit
+  ldh A, [hGameState]
+  cp STATE_ROOM
+  call z, GameDrawRoom
+  ldh A, [hGameState]
+  cp STATE_SELECT
+  call z, GameSelectMove
+  ldh A, [hGameState]
+  cp STATE_END
+  call z, GameEnd
+  ret
+
+GameInit:
+   ;; init health
+  ld a, $14
+  ld [wHealth], a
 
   ; set room
   ld d, 0
@@ -254,102 +330,23 @@ InitGameScene:
 
 
   ld hl, wDeckTop
-  ld a, LOW(wDeck)
-  ld [hli], a
-  ld a, HIGH(wDeck)
+  ld a, 0
   ld [hl], a
 
  ; pointer for the bottom of the deck, should point at the next open slot in circular buffer
   ld hl, wDeckBottom
-  ld a, LOW(wDeck)
-  ld [hli], a
-  ld a, HIGH(wDeck)
+  ld a, [wDeckSize]
   ld [hl], a
 
+  call InitRNGState
   call ShuffleDeck
 
-  ; Display set up
-  ld A, STAT_LYC
-  ldh [rSTAT], A
-
-  ; Enable the VBLANK interrupt
-  ld a, IE_VBLANK | IE_STAT
-	ldh [rIE], a
-
-	ld a, 0
-	ldh [rLCDC], a ; LCD Off
-
-  ; Setup the game board
-	ld de, GameTilemap
-	ld bc, GameTilemapEnd - GameTilemap
-  ld hl, $9800
-  call MemCopy
-
-	ld de, HealthTilemap
-	ld hl, $9A00
-	ld bc, HealthTilemapEnd - HealthTilemap
-  call MemCopy
-
-  call ResetVRAMQueue
-  ; shuffle the deck
-  ; Set up rendering
-  ld DE, CARD_ROOM_0 ; room card 1
-  call ClearCardBorder
-  ld DE, CARD_ROOM_1 ; room card 2
-  call ClearCardBorder
-  ld DE, CARD_ROOM_2 ; room card 3
-  call ClearCardBorder
-  ld DE, CARD_ROOM_3 ; room card 4
-  call ClearCardBorder
-  ld DE, CARD_WEAPON ; weapon card corner
-  call ClearCardBorder
-  ld DE, CARD_MONSTER ; weapon monster card
-  call ClearCardBorder
-
-
-  call ConcludeVRAMQueue
-  call ReadVRAMUpdate
-  call InitRNGState
-
-  ; we're ready now
-  ; enable the background
-  ; enable the window
-  ; turn on the display
-  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_OFF | LCDC_WIN_9C00
-  ldh [rLCDC], a      
-
-	ld a, %11100100
-	ldh [rOBP0], a
-	ldh [rOBP1], a
-
-  ei
-
-  ld a, $C0 ; Only update the deck count and health
-  ld [wCardFlags], a
-
-  ret
-
-; ----------------------------
-
-; ----------------------------
-UpdateGameScene:
-  ldh A, [hGameState]
-  cp STATE_INIT
-  call z, GameInit
-  ldh A, [hGameState]
-  cp STATE_ROOM
-  call z, GameDrawRoom
-  ldh A, [hGameState]
-  cp STATE_SELECT
-  call z, GameSelectMove
-  ldh A, [hGameState]
-  cp STATE_END
-  call z, GameEnd
-  ret
-
-GameInit:
   ld A, STATE_ROOM
   ldh [hGameState], A
+
+  ld A, [wCardFlags]
+  or A, $CF ; Only update the deck count and health
+  ld [wCardFlags], A
   ret
 
 GameDrawRoom:
@@ -371,11 +368,14 @@ GameDrawRoom:
   call DrawCard
   ; put card into A
   ld [DE], A ; card[i] = drawCard(deck); i++
-  inc DE
 .loopDec
+  inc DE
   dec C
   jr nz, .loopStart
 .loopExit
+  ld A, [wCardFlags]
+  or A, $8F ; Only update the deck count and health
+  ld [wCardFlags], A
 
   ld A, STATE_SELECT
   ldh [hGameState], A
@@ -384,12 +384,28 @@ GameDrawRoom:
 
 ; ---------------------------------
 DrawCard:
-  ld HL, wDeckTop
-  ld A, [HLI] 
-  ld L, [HL] 
-  ld H, A
+  push DE
+  ; Read the 
+  ld A, [wDeckBottom] 
+  ld E, A ; E = bottom
+  ld A, [wDeckTop] 
+  cp A, E ; top == bottom?
+  jr z, .finishDraw
+  ld H, HIGH(wDeck)
+  ld L, A
+  ld B, [HL] ; A = deck[top]
+  inc A
+  cp A, 48 ; 48 is max allocated size for deck buffer I guess
+  jr c, .finishMove
+  ld A, 0
+  .finishMove
+  ld [wDeckTop], A
+  ld A, B
+  ld HL, wDeckSize
+  dec [HL]
+  .finishDraw
+  pop DE
 
-  ld A, [HL] ; A = deck[top]
   ret
 ; ---------------------------------
 GameEnd:
@@ -1190,8 +1206,8 @@ wHealth: DB
 wRunFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
 
-wDeckTop: DW
-wDeckBottom: DW
+wDeckTop: DB
+wDeckBottom: DB
 wDeckSize: DB
 
 SECTION "Deck",WRAM0, ALIGN[8]

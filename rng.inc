@@ -9,7 +9,7 @@ InitRNGState::
   ld B, A
   ldh A, [hLY]
   add A, B
-  cp A, A
+  and A
   jr nz, :+
   ld A, $AA ; fixed seed
 :
