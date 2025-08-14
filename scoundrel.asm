@@ -431,10 +431,45 @@ GameSelectMove:
   jr z, :+
   call MoveCursorRight
 :
+  ld a, [wNewKeys]
+  and a, PAD_A
+  jr z, :+
+  call PerformGameAction
+:
 
   call DrawCursorSprites
   call UpdateCardGraphics
   ret
+
+; ---------------------------------
+
+PerformGameAction:
+  ld DE, wCards
+  ld A, [wCursor]
+  ld C, [wCardFlags]
+  add A, E
+  ld E, A
+  ld A, [DE] ; card = cards[i]
+  ; now do something with card
+
+  xor A
+  ld [DE], A ; set the card to zero
+
+  ld A, [wCursor]
+  ld B, A
+  inc B
+  ld A, 1
+:
+  shl A
+  dec B
+  jr nz, :-
+; A = 1 << wCursor
+
+  or A, C
+  ld [wCardFlags], A
+
+  ret
+; ---------------------------------
 
 
 UpdateCardGraphics:
