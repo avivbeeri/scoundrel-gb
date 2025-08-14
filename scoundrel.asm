@@ -268,7 +268,7 @@ InitGameScene:
   call ClearCardBorder
 
   call ConcludeVRAMQueue
-  call ReadVRAMUpdate
+  ; call ReadVRAMUpdate
   ei
   call PauseForVBlank
   call PauseForVBlank
@@ -445,8 +445,9 @@ GameSelectMove:
 
 PerformGameAction:
   ld DE, wCards
+  ld A, [wCardFlags]
+  ld C, A
   ld A, [wCursor]
-  ld C, [wCardFlags]
   add A, E
   ld E, A
   ld A, [DE] ; card = cards[i]
@@ -460,9 +461,11 @@ PerformGameAction:
   inc B
   ld A, 1
 :
-  shl A
   dec B
-  jr nz, :-
+  jr z, :+
+  sla A
+  jr :-
+:
 ; A = 1 << wCursor
 
   or A, C
