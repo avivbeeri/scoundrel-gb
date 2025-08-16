@@ -251,24 +251,6 @@ InitGameScene:
 	ld a, %11100100
 	ldh [rOBP0], a
 	ldh [rOBP1], a
-
-  ; shuffle the deck
-  ; Set up rendering
-   ;ld DE, CARD_ROOM_0 ; room card 1
-   ;call ClearCardBorder
-   ;ld DE, CARD_ROOM_1 ; room card 2
-   ;call ClearCardBorder
-   ;ld DE, CARD_ROOM_2 ; room card 3
-   ;call ClearCardBorder
-   ;ld DE, CARD_ROOM_3 ; room card 4
-   ;call ClearCardBorder
-   ;ld DE, CARD_WEAPON ; weapon card corner
-   ;call ClearCardBorder
-   ;ld DE, CARD_MONSTER ; weapon monster card
-   ;call ClearCardBorder
-
-  ; call ConcludeVRAMQueue
-  ; call ReadVRAMUpdate
   ei
 ret
 
@@ -277,17 +259,16 @@ ret
 ; ----------------------------
 UpdateGameScene:
   ldh A, [hGameState]
-  cp STATE_INIT
-  call z, GameInit
-  ldh A, [hGameState]
-  cp STATE_ROOM
-  call z, GameDrawRoom
+  call z, GameEnd
   ldh A, [hGameState]
   cp STATE_SELECT
   call z, GameSelectMove
   ldh A, [hGameState]
-  cp STATE_END
-  call z, GameEnd
+  cp STATE_ROOM
+  call z, GameDrawRoom
+  ldh A, [hGameState]
+  cp STATE_INIT
+  call z, GameInit
   ret
 
 GameInit:
@@ -342,7 +323,7 @@ GameInit:
   ldh [hGameState], A
 
   ld A, [wCardFlags]
-  or A, $CF ; Only update the deck count and health
+  or A, $C0 ; Only update the deck count and health
   ld [wCardFlags], A
   ret
 
