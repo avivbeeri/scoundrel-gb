@@ -20,6 +20,20 @@ ENUM_MEMBER STATE_END
 ENUM_MEMBER STATE_COUNT
 ENUM_END
 
+SECTION "rst28", ROM0[$0028]
+JumpTable::
+	push de
+	ld e, a
+	ld d, 0
+	add hl, de
+	add hl, de
+	ld a, [hli]
+	ld h, [hl]
+; SECTION "rst30", ROM0[$0030]
+	ld l, a
+	pop de
+	jp hl
+
 SECTION "Joypad Interrupt", ROM0[INT_HANDLER_JOYPAD]
 JoypadInterrupt:
   push af
@@ -258,6 +272,7 @@ ret
 
 ; ----------------------------
 UpdateGameScene:
+  cp STATE_END
   ldh A, [hGameState]
   call z, GameEnd
   ldh A, [hGameState]
@@ -423,13 +438,28 @@ GameSelectMove:
 
 PerformGameAction:
   ld DE, wCards
-  ld A, [wCardFlags]
-  ld C, A
   ld A, [wCursor]
   add A, E
   ld E, A
   ld A, [DE] ; card = cards[i]
   ; now do something with card
+
+  ld B, A
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  jr z, .complete
+
+  ldh [hCardSuit], A ; save the suit
+  ld A, B 
+  and A, $0F ; split value
+  ldh [hCardValue], A ; save the value
+
+
+  ldh A, [hCardSuit]
+	ld HL, PerformActionTable
+	rst JumpTable
+
+  ; TODO: check return value
 
   xor A
   ld [DE], A ; set the card to zero
@@ -446,10 +476,41 @@ PerformGameAction:
 :
 ; A = 1 << wCursor
 
+  ld C, A
+  ld A, [wCardFlags]
   or A, C
   ld [wCardFlags], A
 
+.complete
   ret
+; ---------------------------------
+
+PerformNone:
+  ret
+PerformHeal:
+  ld A, [hCardValue]
+  ld B, A
+  call IncreaseHealth
+
+  ld A, [wCardFlags]
+  or a, $40
+  ld [wCardFlags], a
+
+  ret
+PerformWeaponPickup:
+  ret
+PerformAttack:
+  ld A, [hCardValue]
+  ld B, A
+  call DecreaseHealth
+
+  ld A, [wCardFlags]
+  or a, $40
+  ld [wCardFlags], a
+  ret
+PerformSpecial:
+  ret
+
 ; ---------------------------------
 
 
@@ -907,6 +968,9 @@ MoveCursorRight:
   ret
 ; ----------------------------
 IncreaseHealth:
+  ld A, [hCardValue]
+  ld B, A
+  call IncreaseHealth
   ld a, [wHealth]
   add a, b
   cp a, $15 ; greater than 20?
@@ -1293,6 +1357,13 @@ CARD_LUT:
   dw CARD_WEAPON
   dw CARD_MONSTER
 
+PerformActionTable:
+  dw PerformNone ; none
+  dw PerformHeal ; heart
+  dw PerformWeaponPickup ; diamond
+  dw PerformAttack ; spade
+  dw PerformAttack ; club
+  dw PerformSpecial ; joker?
 
 
 STATE_TABLE:
