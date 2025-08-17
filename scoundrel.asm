@@ -421,8 +421,8 @@ DrawCard:
   ret
 ; ---------------------------------
 GameEnd:
-  ld A, 0
-  ldh [hScene], A
+;  ld A, 0
+;  ldh [hScene], A
   ret
 
 GameEndTurn:
@@ -468,7 +468,11 @@ GameSelectMove:
   ld A, STATE_END_TURN
   ldh [hGameState], A
 .skip
-  
+  call CheckEndConditions
+  ret
+
+; ---------------------------------
+CheckEndConditions:
   ; Check end condition
   ld A, [wHealth]
   and A
