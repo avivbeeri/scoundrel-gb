@@ -454,7 +454,6 @@ PerformGameAction:
   and A, $0F ; split value
   ldh [hCardValue], A ; save the value
 
-
   ldh A, [hCardSuit]
 	ld HL, PerformActionTable
 	rst JumpTable
@@ -487,7 +486,11 @@ PerformGameAction:
 
 PerformNone:
   ret
+
 PerformHeal:
+  ld A, [wHealFlag]
+  or A ; fast compare to 0
+  jr nz, .complete ; skip if we healed on this turn already
   ld A, [hCardValue]
   ld B, A
   call IncreaseHealth
@@ -496,9 +499,14 @@ PerformHeal:
   or a, $40
   ld [wCardFlags], a
 
+  ld A, 1
+  ld [wHealFlag], A
+.complete
   ret
+
 PerformWeaponPickup:
   ret
+
 PerformAttack:
   ld A, [hCardValue]
   ld B, A
@@ -508,6 +516,7 @@ PerformAttack:
   or a, $40
   ld [wCardFlags], a
   ret
+
 PerformSpecial:
   ret
 
@@ -904,6 +913,7 @@ ShuffleDeck:
 .shuffleLoop 
 .jloop
   call GetRandomByte ;
+  and A, 63
   cp A, L
   jr nc, .jloop
   ld E, A
@@ -970,7 +980,6 @@ MoveCursorRight:
 IncreaseHealth:
   ld A, [hCardValue]
   ld B, A
-  call IncreaseHealth
   ld a, [wHealth]
   add a, b
   cp a, $15 ; greater than 20?
@@ -1284,6 +1293,7 @@ wCardFlags: DB
 wCursor: DB
 wHealth: DB
 wRunFlag: DB ; zero if we can run from the room, one if we can't
+wHealFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
 
 wDeckTop: DB
