@@ -16,6 +16,7 @@ ENUM STATE
 ENUM_MEMBER STATE_INIT 
 ENUM_MEMBER STATE_ROOM
 ENUM_MEMBER STATE_SELECT
+ENUM_MEMBER STATE_END_TURN
 ENUM_MEMBER STATE_END  
 ENUM_MEMBER STATE_COUNT
 ENUM_END
@@ -231,6 +232,8 @@ InitGameScene:
   ld [wRunFlag], a
   ld [wCursor], a
   ld [wCardFlags], a
+  ld [wActions], a
+  ld [wHealFlag], a
   ldh [hGameState], a
 
    ; Display set up
@@ -272,18 +275,26 @@ ret
 
 ; ----------------------------
 UpdateGameScene:
-  cp STATE_END
   ldh A, [hGameState]
+  cp STATE_END
   call z, GameEnd
+
+  ldh A, [hGameState]
+  cp STATE_END_TURN
+  call z, GameEndTurn
+
   ldh A, [hGameState]
   cp STATE_SELECT
   call z, GameSelectMove
+
   ldh A, [hGameState]
   cp STATE_ROOM
   call z, GameDrawRoom
+
   ldh A, [hGameState]
   cp STATE_INIT
   call z, GameInit
+
   ret
 
 GameInit:
@@ -383,7 +394,7 @@ DrawCard:
   ld E, A ; E = bottom
   ld A, [wDeckTop] 
   cp A, E ; top == bottom?
-  jr z, .finishDraw
+  jr z, .emptyDeck
   ld H, HIGH(wDeck)
   ld L, A
   ld B, [HL] ; A = deck[top]
@@ -396,6 +407,9 @@ DrawCard:
   ld A, B
   ld HL, wDeckSize
   dec [HL]
+  jr .finishDraw
+  .emptyDeck
+  xor A ; No value here if we're empty deck
   .finishDraw
   pop DE
 
@@ -404,6 +418,16 @@ DrawCard:
 GameEnd:
   ld A, 0
   ldh [hScene], A
+  ret
+
+GameEndTurn:
+  xor A
+  ld [wActions], A
+  ld [wHealFlag], A
+  ld [wRunFlag], A
+  
+  ld A, STATE_ROOM
+  ldh [hGameState], A
   ret
 
 GameSelectMove:
@@ -429,6 +453,13 @@ GameSelectMove:
   jr z, :+
   call PerformGameAction
 :
+
+  ld a, [wActions]
+  cp a, 3
+  jr nz, .skip
+  ld A, STATE_END_TURN
+  ldh [hGameState], A
+.skip
 
   call DrawCursorSprites
   call UpdateCardGraphics
@@ -459,6 +490,9 @@ PerformGameAction:
 	rst JumpTable
 
   ; TODO: check return value
+  ld A, [wActions]
+  inc A
+  ld [wActions], A
 
   xor A
   ld [DE], A ; set the card to zero
@@ -1292,6 +1326,7 @@ wNewKeys: DB
 wCardFlags: DB
 wCursor: DB
 wHealth: DB
+wActions: DB ; zero if we can run from the room, one if we can't
 wRunFlag: DB ; zero if we can run from the room, one if we can't
 wHealFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
