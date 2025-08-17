@@ -17,7 +17,8 @@ ENUM_MEMBER STATE_INIT
 ENUM_MEMBER STATE_ROOM
 ENUM_MEMBER STATE_SELECT
 ENUM_MEMBER STATE_END_TURN
-ENUM_MEMBER STATE_END  
+ENUM_MEMBER STATE_END_WIN
+ENUM_MEMBER STATE_END_LOSE
 ENUM_MEMBER STATE_COUNT
 ENUM_END
 
@@ -276,7 +277,11 @@ ret
 ; ----------------------------
 UpdateGameScene:
   ldh A, [hGameState]
-  cp STATE_END
+  cp STATE_END_WIN
+  call z, GameEnd
+
+  ldh A, [hGameState]
+  cp STATE_END_LOSE
   call z, GameEnd
 
   ldh A, [hGameState]
@@ -454,15 +459,44 @@ GameSelectMove:
   call PerformGameAction
 :
 
+  call DrawCursorSprites
+  call UpdateCardGraphics
+
   ld a, [wActions]
   cp a, 3
   jr nz, .skip
   ld A, STATE_END_TURN
   ldh [hGameState], A
 .skip
+  
+  ; Check end condition
+  ld A, [wHealth]
+  and A
+  ld A, STATE_END_LOSE
+  jr z, .gameEnded
 
-  call DrawCursorSprites
-  call UpdateCardGraphics
+  ld A, [wDeckSize]
+  and A
+  jr nz, .complete
+
+; iterate over the room?
+  ld C, 4
+  ld HL, wCards
+.loopStart
+  ld A, [HLI] ; card = cards[i]
+  swap a
+  and a, $0F ; check the suit to see if a card is present
+  jr nz, .complete
+  dec C
+  jr nz, .loopStart
+
+  ld A, STATE_END_WIN
+  jr z, .gameEnded
+
+  jr .complete
+.gameEnded
+  ldh [hGameState], A
+.complete
   ret
 
 ; ---------------------------------
