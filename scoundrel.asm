@@ -202,6 +202,12 @@ EntryPoint:
 
 GameLoop:
   call PauseForVBlank
+  ; We didn't quite finish the VRAM update, skip a frame
+  ldh A, [hUpdateVRAMFlag]
+  and A
+  jr z, :+
+  jr GameLoop
+  :
   call ResetVRAMQueue
 
   call UpdateKeys
@@ -277,29 +283,8 @@ ret
 ; ----------------------------
 UpdateGameScene:
   ldh A, [hGameState]
-  cp STATE_END_WIN
-  call z, GameEnd
-
-  ldh A, [hGameState]
-  cp STATE_END_LOSE
-  call z, GameEnd
-
-  ldh A, [hGameState]
-  cp STATE_END_TURN
-  call z, GameEndTurn
-
-  ldh A, [hGameState]
-  cp STATE_SELECT
-  call z, GameSelectMove
-
-  ldh A, [hGameState]
-  cp STATE_ROOM
-  call z, GameDrawRoom
-
-  ldh A, [hGameState]
-  cp STATE_INIT
-  call z, GameInit
-
+	ld HL, StateJumpTable
+	rst JumpTable
   ret
 
 GameInit:
@@ -336,7 +321,6 @@ GameInit:
 
   ld a, 44
   ld [wDeckSize], a
-
 
   ld hl, wDeckTop
   ld a, 0
@@ -390,6 +374,27 @@ GameDrawRoom:
   ldh [hGameState], A
   ret
 
+; ---------------------------------
+; A = card
+BuryCard:
+  ld A, [wDeckBottom] 
+  ld D, HIGH(wDeck)
+  ld E, A
+  ld [DE], A  ; deck[bottom] = A
+
+  ; check deck bounds
+  ld A, E
+  inc A
+  cp A, 48 ; 48 is max allocated size for deck buffer I guess
+  jr c, .finishMove
+  ld A, 0
+  .finishMove
+  ld [wDeckBottom], A
+
+  ld HL, wDeckSize
+  inc [HL]
+
+  ret
 
 ; ---------------------------------
 DrawCard:
@@ -468,8 +473,8 @@ GameSelectMove:
   ld A, STATE_END_TURN
   ldh [hGameState], A
 .skip
-  call CheckEndConditions
-  ret
+  ; tail call
+  jp CheckEndConditions
 
 ; ---------------------------------
 CheckEndConditions:
@@ -506,8 +511,14 @@ CheckEndConditions:
 ; ---------------------------------
 
 PerformGameAction:
-  ld DE, wCards
   ld A, [wCursor]
+  cp A, 4
+  jr nz, .notDeck
+
+  call PerformRedraw
+  jr .complete
+.notDeck
+  ld DE, wCards
   add A, E
   ld E, A
   ld A, [DE] ; card = cards[i]
@@ -527,7 +538,7 @@ PerformGameAction:
 	ld HL, PerformActionTable
 	rst JumpTable
 
-  ; TODO: check return value
+.actionFinished
   ld A, [wActions]
   inc A
   ld [wActions], A
@@ -592,6 +603,48 @@ PerformAttack:
 PerformSpecial:
   ret
 
+PerformRedraw:
+  ld A, [wRunFlag]
+  and A ; if not zero, we've run once this turn already
+  jr nz, .skip
+
+  ld A, [wActions]
+  and A ; if not zero, we've already taken an action this turn
+  ; no running
+  jr nz, .skip
+
+  
+  ; cycle through room, putting cards on the deck
+  ld C, 4
+  ld HL, wCards
+.loopStart
+  ld A, [HL] ; card = cards[i]
+  and a, $F0 ; check the suit to see if a card is present
+  jr z, .loopNext
+  ; there's a card here, add it to the deck
+
+  push HL
+  call BuryCard
+  pop HL
+  xor a
+  ld [HL], A ; card = 0
+.loopNext
+  inc HL
+  dec C
+  jr nz, .loopStart
+
+; Set to redraw the room
+  ld A, STATE_ROOM
+  ldh [hGameState], A
+
+  ld a, [wCardFlags]
+  or A, $0F
+  ld [wCardFlags], A
+
+  ld A, 1
+  ld [wRunFlag], A
+.skip
+  ret
 ; ---------------------------------
 
 
@@ -891,16 +944,19 @@ ClearCardBorder:
   push HL
   ld L, 5
   ld B, 0
+  xor C
 :
   push HL ; updates clobber L, which we need to maintain
-  call PushVRAMUpdate
+  call GetVRAMQueueSlot
+  call PushVRAMQueue
   inc DE
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
+  call SaveVRAMQueueSlot
   ld A, E ; this might not be good enough
   add A, $1C
   ld E, A
@@ -1212,7 +1268,7 @@ ReadVRAMUpdate::
   ldh [rSTAT], A
   jr .skip
 .complete
-  ld A, $0 ; in progress
+  ld A, $0 ; complete
   ldh [hUpdateVRAMFlag], A ; set flag
   ld SP, HL ; restore the stack pointer for safety
 .skip
@@ -1235,6 +1291,8 @@ SaveVRAMQueueSlot:
   ld [wQueuePtr], A
   ld A, H
   ld [wQueuePtr+1], A
+  ld      A, $1
+  ldh     [hUpdateVRAMFlag], A
   ret
 
 ResetVRAMQueue:
@@ -1245,6 +1303,7 @@ ResetVRAMQueue:
   ret
   
 ConcludeVRAMQueue:
+  
   ldh A, [hUpdateVRAMFlag]
   or A
   jr z, :+ ; only do this if there's something to do
@@ -1289,8 +1348,6 @@ PushVRAMUpdate::
   xor C
   call PushVRAMQueue
   call SaveVRAMQueueSlot
-	ld	A, $1
-	ldh	[hUpdateVRAMFlag], A
   ret
 ; ----------------------------
 
@@ -1439,6 +1496,14 @@ CARD_LUT:
   dw CARD_ROOM_3
   dw CARD_WEAPON
   dw CARD_MONSTER
+
+StateJumpTable:
+  dw GameInit
+  dw GameDrawRoom
+  dw GameSelectMove
+  dw GameEndTurn
+  dw GameEnd
+  dw GameEnd
 
 PerformActionTable:
   dw PerformNone ; none
