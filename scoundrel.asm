@@ -11,6 +11,11 @@ MACRO ENUM_MEMBER
   def \1 rb
 ENDM
 
+ENUM VRAM_QUEUE
+ENUM_MEMBER VRAM_QUEUE_COMPLETE
+ENUM_MEMBER VRAM_QUEUE_PENDING
+ENUM_MEMBER VRAM_QUEUE_PAUSED
+ENUM_END
 ; Setting up a game state enum
 ENUM STATE
 ENUM_MEMBER STATE_INIT 
@@ -285,6 +290,10 @@ UpdateGameScene:
   ldh A, [hGameState]
 	ld HL, StateJumpTable
 	rst JumpTable
+
+  call DrawCursorSprites
+  call UpdateCardGraphics
+
   ret
 
 GameInit:
@@ -377,9 +386,11 @@ GameDrawRoom:
 ; ---------------------------------
 ; A = card
 BuryCard:
+  ld D, A
   ld A, [wDeckBottom] 
-  ld D, HIGH(wDeck)
   ld E, A
+  ld A, D
+  ld D, HIGH(wDeck)
   ld [DE], A  ; deck[bottom] = A
 
   ; check deck bounds
@@ -399,6 +410,7 @@ BuryCard:
 ; ---------------------------------
 DrawCard:
   push DE
+  ld D, 0
   ; Read the 
   ld A, [wDeckBottom] 
   ld E, A ; E = bottom
@@ -408,6 +420,7 @@ DrawCard:
   ld H, HIGH(wDeck)
   ld L, A
   ld B, [HL] ; A = deck[top]
+  ld [HL], D
   inc A
   cp A, 48 ; 48 is max allocated size for deck buffer I guess
   jr c, .finishMove
@@ -463,9 +476,6 @@ GameSelectMove:
   jr z, :+
   call PerformGameAction
 :
-
-  call DrawCursorSprites
-  call UpdateCardGraphics
 
   ld a, [wActions]
   cp a, 3
@@ -619,11 +629,13 @@ PerformRedraw:
   ld HL, wCards
 .loopStart
   ld A, [HL] ; card = cards[i]
+  ld B, A
   and a, $F0 ; check the suit to see if a card is present
   jr z, .loopNext
   ; there's a card here, add it to the deck
 
   push HL
+  ld A, B
   call BuryCard
   pop HL
   xor a
@@ -974,51 +986,49 @@ RenderCardBorder:
   push BC
   push HL
 
-  ld C, 0
+  xor C
 
 ; row 1
   ld B, $53
-  call PushVRAMUpdate
+  call GetVRAMQueueSlot
+  call PushVRAMQueue
   inc DE
   ld B, $54
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
   ld B, $55
-  call PushVRAMUpdate
+  call PushVRAMQueue
 
   ld A, E
   add A, $1D
   ld E, A
 
-  ld L, 3 ; 3 middle rows for border
-:
-  push HL
   ld B, $63
-  call PushVRAMUpdate
+REPT 3 ; 3 middle rows for border
+  call PushVRAMQueue
   inc E
   inc E
   inc E
-  call PushVRAMUpdate
+  call PushVRAMQueue
   ; carriage return
   ld A, E
   add A, $1D
   ld E, A
-  pop HL
-  dec L
-  jr nz, :-
+ENDR
   ;final row
   ld B, $73
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
   ld B, $74
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
-  call PushVRAMUpdate
+  call PushVRAMQueue
   inc DE
   ld B, $75
-  call PushVRAMUpdate
+  call PushVRAMQueue
+  call SaveVRAMQueueSlot
 
   pop HL
   pop BC
@@ -1262,13 +1272,13 @@ ReadVRAMUpdate::
   ld SP, HL ; restore the stack pointer for safety
 
   ; Set the hUpdateVRAMFlag flag to $2, for "in progress"
-  ld A, $2 ; in progress
+  ld A, VRAM_QUEUE_PAUSED ; in progress
   ldh [hUpdateVRAMFlag], A ; set flag
   ld A, STAT_LYC | STAT_MODE_0
   ldh [rSTAT], A
   jr .skip
 .complete
-  ld A, $0 ; complete
+  ld A, VRAM_QUEUE_COMPLETE ; complete
   ldh [hUpdateVRAMFlag], A ; set flag
   ld SP, HL ; restore the stack pointer for safety
 .skip
@@ -1291,8 +1301,8 @@ SaveVRAMQueueSlot:
   ld [wQueuePtr], A
   ld A, H
   ld [wQueuePtr+1], A
-  ld      A, $1
-  ldh     [hUpdateVRAMFlag], A
+  ; ld      A, VRAM_QUEUE_PENDING
+  ; ldh     [hUpdateVRAMFlag], A
   ret
 
 ResetVRAMQueue:
@@ -1303,12 +1313,9 @@ ResetVRAMQueue:
   ret
   
 ConcludeVRAMQueue:
-  
-  ldh A, [hUpdateVRAMFlag]
-  or A
-  jr z, :+ ; only do this if there's something to do
-
   ld A, [wQueuePtr]
+  or A
+  jr z, :+
   ld L, A
   ld A, [wQueuePtr+1]
   ld H, A
@@ -1316,6 +1323,9 @@ ConcludeVRAMQueue:
   dec HL
   ld A, $80
   ld [HL], A
+
+  ld      A, VRAM_QUEUE_PENDING
+  ldh     [hUpdateVRAMFlag], A
   
 :
   ret
