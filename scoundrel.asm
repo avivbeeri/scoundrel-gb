@@ -598,6 +598,20 @@ PerformHeal:
   ret
 
 PerformWeaponPickup:
+  ld A, [hCardValue]
+  ld B, A
+  ld A, [hCardSuit]
+  swap A
+  or B
+  ld [wCards + 4], A
+
+  ; clear weapon power stack
+  xor A
+  ld [wCards + 5], A
+
+  ld A, [wCardFlags]
+  or a, $30
+  ld [wCardFlags], a
   ret
 
 PerformAttack:
