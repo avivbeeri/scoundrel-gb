@@ -21,7 +21,6 @@ ENUM STATE
 ENUM_MEMBER STATE_INIT 
 ENUM_MEMBER STATE_ROOM
 ENUM_MEMBER STATE_SELECT
-ENUM_MEMBER STATE_SELECT_ATTACK
 ENUM_MEMBER STATE_END_TURN
 ENUM_MEMBER STATE_END_WIN
 ENUM_MEMBER STATE_END_LOSE
@@ -444,19 +443,6 @@ GameEnd:
 ;  ldh [hScene], A
   ret
 
-SelectAttack:
-  ld a, [wNewKeys]
-  and a, PAD_UP | PAD_DOWN
-  jr z, :+
-  call MoveMenuCursor
-:
-  ld a, [wNewKeys]
-  and a, PAD_A
-  jr z, :+
-  call CompleteAttackAction
-:
-  ret
-
 GameEndTurn:
   xor A
   ld [wActions], A
@@ -630,53 +616,27 @@ PerformWeaponPickup:
 
 PerformAttack:
   ; if a weapon is equipped
-  ;   if no monster killed yet, open menu
-  ;   check last killed with value
+  ;   check if it's strong enough to be used
   ;   if so, open the menu, presenting punch and strike options
   ; else punch it.
-  ld A, [hCardValue]
-  ld B, A ; b = target
 
   ld A, [wCards + 4] ; get value of weapon?
-  ld C, A ; C = weapon
+  ld C, A
   swap a
   and a, $0F ; check the suit to see if a weapon is present
-  jr z, .punch ; no weapon equipped, jump to punch
-
-  ld A, [wCards + 5] ; check last monster killed
-  ld D, A ; D = last monster
-  swap a
-  and a, $0F ;
-  jr z, .useWeapon ; no monster killed yet, open menu to choose
-
-  ; compare the current weapon strength with the target
-  ld A, D ; A = last monster [total]
-  and A, $0F ; get value of monster
-  ld D, A ; D = weapon strength
-  inc B
-  cp A, B ; weapon - monster?
-  jr nc, .useMonster
-  jr .punch
-.useMonster
-  ld A, B
-  and A, $0F
-  ldh A, [hAttackValue]
-  jr .openMenu
-.useWeapon
+  jr z, .punch
   ld A, C
-  and A, $0F
-  ldh A, [hAttackValue]
-.openMenu
-  ld A, STATE_SELECT_ATTACK
-  ldh [hGameState], A
-  jr .complete
+  and a, $0F 
+
 .punch
+  ld A, [hCardValue]
+  ld B, A
   call DecreaseHealth
 
+.complete
   ld A, [wCardFlags]
   or a, $40
   ld [wCardFlags], a
-.complete
   ret
 
 PerformSpecial:
@@ -1540,7 +1500,6 @@ hCardSuit: db
 hCardValue: db
 hCardOnes: db
 hCardTens: db
-hAttackValue: db
 
 SECTION "Constants", ROM0
 
