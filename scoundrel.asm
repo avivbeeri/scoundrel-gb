@@ -185,7 +185,11 @@ EntryPoint:
   ld A, 134 - WX_OFS
   ldh [rLYC], A ; this is a line prior so we can pull some HBlank trickery
   inc A
+  ld A, 119 - WX_OFS
   ldh [rWY], A
+
+  ld A, $07
+  ldh [rWX], A
 
   ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_OFF | LCDC_WIN_OFF
   ldh [rLCDC], a      ; Enable and configure the LCD to show the background
@@ -244,6 +248,7 @@ InitGameScene:
   ld a, 0
   ld [wRunFlag], a
   ld [wCursor], a
+  ld [wMenuCursor], a
   ld [wCardFlags], a
   ld [wActions], a
   ld [wHealFlag], a
@@ -269,6 +274,11 @@ InitGameScene:
 	ld de, HealthTilemap
 	ld hl, $9A00
 	ld bc, HealthTilemapEnd - HealthTilemap
+  call MemCopy
+
+	ld de, AttackMenuTilemap
+	ld hl, $9C00
+	ld bc, AttackMenuTilemapEnd - AttackMenuTilemap
   call MemCopy
 
   ; we're ready now
@@ -444,17 +454,45 @@ GameEnd:
 ;  ldh [hScene], A
   ret
 
-SelectAttack:
+GameSelectAttack:
   ld a, [wNewKeys]
   and a, PAD_UP | PAD_DOWN
   jr z, :+
   call MoveMenuCursor
+
 :
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
   call CompleteAttackAction
 :
+  ld a, [wNewKeys]
+  and a, PAD_B
+  jr z, :+
+  ld A, STATE_SELECT
+  ldh [hGameState], A
+:
+  ret
+
+CompleteAttackAction:
+  ld A, [hCardValue]
+  ld B, A
+  call DecreaseHealth
+  call DiscardSelection
+
+  ld A, [wCardFlags]
+  or a, $40
+  ld [wCardFlags], a
+
+  ld A, [wActions]
+  inc A
+  ld [wActions], A
+
+  ld A, STATE_SELECT
+  ldh [hGameState], A
+  ret
+
+MoveMenuCursor:
   ret
 
 GameEndTurn:
@@ -562,31 +600,14 @@ PerformGameAction:
 	ld HL, PerformActionTable
 	rst JumpTable
 
-.actionFinished
+  and A
+  jr nz, .complete ; if not zero, we didn't complete an action
+  call DiscardSelection
+
+.actionComplete
   ld A, [wActions]
   inc A
   ld [wActions], A
-
-  xor A
-  ld [DE], A ; set the card to zero
-
-  ld A, [wCursor]
-  ld B, A
-  inc B
-  ld A, 1
-:
-  dec B
-  jr z, :+
-  sla A
-  jr :-
-:
-; A = 1 << wCursor
-
-  ld C, A
-  ld A, [wCardFlags]
-  or A, C
-  ld [wCardFlags], A
-
 .complete
   ret
 ; ---------------------------------
@@ -609,6 +630,7 @@ PerformHeal:
   ld A, 1
   ld [wHealFlag], A
 .complete
+  xor A
   ret
 
 PerformWeaponPickup:
@@ -626,6 +648,8 @@ PerformWeaponPickup:
   ld A, [wCardFlags]
   or a, $30
   ld [wCardFlags], a
+
+  xor A
   ret
 
 PerformAttack:
@@ -647,7 +671,7 @@ PerformAttack:
   ld D, A ; D = last monster
   swap a
   and a, $0F ;
-  jr z, .useWeapon ; no monster killed yet, open menu to choose
+  jr z, .openMenu ; no monster killed yet, open menu to choose
 
   ; compare the current weapon strength with the target
   ld A, D ; A = last monster [total]
@@ -655,17 +679,8 @@ PerformAttack:
   ld D, A ; D = weapon strength
   inc B
   cp A, B ; weapon - monster?
-  jr nc, .useMonster
+  jr nc, .openMenu
   jr .punch
-.useMonster
-  ld A, B
-  and A, $0F
-  ldh A, [hAttackValue]
-  jr .openMenu
-.useWeapon
-  ld A, C
-  and A, $0F
-  ldh A, [hAttackValue]
 .openMenu
   ld A, STATE_SELECT_ATTACK
   ldh [hGameState], A
@@ -676,6 +691,8 @@ PerformAttack:
   ld A, [wCardFlags]
   or a, $40
   ld [wCardFlags], a
+
+  xor A
 .complete
   ret
 
@@ -728,6 +745,34 @@ PerformRedraw:
   ret
 ; ---------------------------------
 
+DiscardSelection:
+  ld DE, wCards
+  ld A, [wCursor]
+  add A, E
+  ld E, A
+
+  xor A
+  ld [DE], A ; set the card to zero
+
+  ld A, [wCursor]
+  ld B, A
+  inc B
+  ld A, 1
+:
+  dec B
+  jr z, :+
+  sla A
+  jr :-
+:
+; A = 1 << wCursor
+
+  ld C, A
+  ld A, [wCardFlags]
+  or A, C
+  ld [wCardFlags], A
+  ret
+
+; ---------------------------------
 
 UpdateCardGraphics:
   ld a, [wCardFlags]
@@ -1499,6 +1544,7 @@ wNewKeys: DB
 
 wCardFlags: DB
 wCursor: DB
+wMenuCursor: DB
 wHealth: DB
 wActions: DB ; zero if we can run from the room, one if we can't
 wRunFlag: DB ; zero if we can run from the room, one if we can't
@@ -1546,6 +1592,7 @@ SECTION "Constants", ROM0
 
 def START_TEXT_LEN equ 10
 StartText: DB "Push Start"
+FightText: DB "Weapon   Punch"
 
 def HEALTH_FIRST_HEART equ $9A0C
 def HEALTH_TENS equ $9A0E
@@ -1581,6 +1628,7 @@ StateJumpTable:
   dw GameInit
   dw GameDrawRoom
   dw GameSelectMove
+  dw GameSelectAttack
   dw GameEndTurn
   dw GameEnd
   dw GameEnd
@@ -1604,6 +1652,17 @@ SECTION "Tile data", ROM0
 
 Tiles: INCBIN "tiles.bin"
 TilesEnd:
+
+
+SECTION "AttackMenuTilemap", ROM0
+AttackMenuTilemap:
+db $00 , $00 , $00 , $00 , $1F , $24 , $1D , $12 , $17 , $00 , $00 , $00 , $26 , $14 , $10
+db $1F , $1E , $1D , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
+db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
+db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00, $00
+AttackMenuHealth: ; we need this to duplicate the healthbar
+db $00 , $00 , $00 , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $00 , $03 , $01 , $0F , $03 , $01 , $00
+AttackMenuTilemapEnd:
 
 SECTION "HealthBar Tilemap", ROM0
 HealthTilemap:
