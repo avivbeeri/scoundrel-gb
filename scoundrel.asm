@@ -448,15 +448,61 @@ DrawCard:
   pop DE
 
   ret
+
+; ---------------------------------
+HideAttackCursor:
+  ld A, 144
+  ldh [rWY], A
+  ld hl, wShadowOAM + (4 * 4)
+  xor A
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+  ld [hl], A
+  ret
+; ---------------------------------
+DrawAttackMenu:
+  ld A, 112 
+  ldh [rWY], A
+
+  ld hl, wShadowOAM + (4 * 4)
+  ld A, 128
+  ld [hli], A
+
+  ld A, [wMenuCursor]
+  and A
+  jr z, .punch
+
+  ld a, 94
+  ld [hli], A
+
+  jr .exit
+.punch
+  ld a, 30
+  ld [hli], A
+
+.exit
+  ld a, $5D
+  ld [hli], A
+  ld a, $00
+  ld [hl], A
+
+  ret
 ; ---------------------------------
 GameEnd:
 ;  ld A, 0
 ;  ldh [hScene], A
   ret
 
+MoveMenuCursor:
+  ld A, [wMenuCursor]
+  xor $01
+  ld [wMenuCursor], A
+  ret
+
 GameSelectAttack:
   ld a, [wNewKeys]
-  and a, PAD_UP | PAD_DOWN
+  and a, PAD_LEFT | PAD_RIGHT
   jr z, :+
   call MoveMenuCursor
 
@@ -464,22 +510,31 @@ GameSelectAttack:
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
-  call CompleteAttackAction
+  jp CompleteAttackAction
 :
   ld a, [wNewKeys]
   and a, PAD_B
   jr z, :+
   ld A, STATE_SELECT
   ldh [hGameState], A
-  ld A, 144
-  ldh [rWY], A
+  call HideAttackCursor
 :
-  ret
+  ; tail call
+  jp DrawAttackMenu
+; ----------------------------
 
 CompleteAttackAction:
   ld A, [hCardValue]
   ld B, A
+  ld A, [wMenuCursor]
+  and A
+  jr nz, .weapon
+  ; punch
   call DecreaseHealth
+  jr .cleanup
+.weapon
+  ; call DecreaseHealth
+.cleanup
   call DiscardSelection
 
   ld A, [wCardFlags]
@@ -493,12 +548,9 @@ CompleteAttackAction:
   ld A, STATE_SELECT
   ldh [hGameState], A
 
-  ld A, 144
-  ldh [rWY], A
+  call HideAttackCursor
   ret
-
-MoveMenuCursor:
-  ret
+; -----------------------------------
 
 GameEndTurn:
   xor A
@@ -509,6 +561,7 @@ GameEndTurn:
   ld A, STATE_ROOM
   ldh [hGameState], A
   ret
+; -----------------------------------
 
 GameSelectMove:
   ld a, [wNewKeys]
