@@ -185,7 +185,7 @@ EntryPoint:
   ld A, 134 - WX_OFS
   ldh [rLYC], A ; this is a line prior so we can pull some HBlank trickery
   inc A
-  ld A, 119 - WX_OFS
+  ld A, 144
   ldh [rWY], A
 
   ld A, $07
@@ -285,7 +285,7 @@ InitGameScene:
   ; enable the background
   ; enable the window
   ; turn on the display
-  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_OFF | LCDC_WIN_9C00
+  ld a, LCDC_ON | LCDC_BLOCK01 | LCDC_BG_ON | LCDC_OBJ_ON | LCDC_WIN_ON | LCDC_WIN_9C00
   ldh [rLCDC], a      
 
 	ld a, %11100100
@@ -471,6 +471,8 @@ GameSelectAttack:
   jr z, :+
   ld A, STATE_SELECT
   ldh [hGameState], A
+  ld A, 144
+  ldh [rWY], A
 :
   ret
 
@@ -490,6 +492,9 @@ CompleteAttackAction:
 
   ld A, STATE_SELECT
   ldh [hGameState], A
+
+  ld A, 144
+  ldh [rWY], A
   ret
 
 MoveMenuCursor:
@@ -682,6 +687,11 @@ PerformAttack:
   jr nc, .openMenu
   jr .punch
 .openMenu
+  call DuplicateHealthBar
+
+  ld A, 112 
+  ldh [rWY], A
+
   ld A, STATE_SELECT_ATTACK
   ldh [hGameState], A
   jr .complete
@@ -1010,6 +1020,13 @@ DrawDeckTotal:
   call PushVRAMUpdate
 
   ret
+
+; ---------------------------
+DuplicateHealthBar:
+	ld de, $9A00
+	ld hl, $9C40
+	ld bc, HealthTilemapEnd - HealthTilemap
+  jp MemCopy
 ; ---------------------------
 DrawHealthBar:
 ; render current health from BCD
@@ -1656,10 +1673,10 @@ TilesEnd:
 
 SECTION "AttackMenuTilemap", ROM0
 AttackMenuTilemap:
-db $00 , $00 , $00 , $00 , $1F , $24 , $1D , $12 , $17 , $00 , $00 , $00 , $26 , $14 , $10
-db $1F , $1E , $1D , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
+db $00 , $00 , $00 , $00 , $1F , $24 , $1D , $12 , $17 , $00 , $00 , $00 , $26 , $14 , $10 , $1F
+db $1E , $1D , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
 db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
-db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00, $00
+db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
 AttackMenuHealth: ; we need this to duplicate the healthbar
 db $00 , $00 , $00 , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $4C , $00 , $03 , $01 , $0F , $03 , $01 , $00
 AttackMenuTilemapEnd:
