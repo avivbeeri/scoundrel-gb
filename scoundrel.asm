@@ -471,14 +471,14 @@ DrawAttackMenu:
 
   ld A, [wMenuCursor]
   and A
-  jr z, .punch
+  jr nz, .punch
 
-  ld a, 94
+  ld a, 30
   ld [hli], A
 
   jr .exit
 .punch
-  ld a, 30
+  ld a, 94
   ld [hli], A
 
 .exit
@@ -505,7 +505,6 @@ GameSelectAttack:
   and a, PAD_LEFT | PAD_RIGHT
   jr z, :+
   call MoveMenuCursor
-
 :
   ld a, [wNewKeys]
   and a, PAD_A
@@ -517,7 +516,7 @@ GameSelectAttack:
   jr z, :+
   ld A, STATE_SELECT
   ldh [hGameState], A
-  call HideAttackCursor
+  jp HideAttackCursor
 :
   ; tail call
   jp DrawAttackMenu
@@ -525,15 +524,34 @@ GameSelectAttack:
 
 CompleteAttackAction:
   ld A, [hCardValue]
-  ld B, A
+  ld C, A
   ld A, [wMenuCursor]
   and A
-  jr nz, .weapon
+  jr z, .weapon
   ; punch
+  ld B, C
   call DecreaseHealth
   jr .cleanup
 .weapon
-  ; call DecreaseHealth
+  ldh A, [hAttackValue] 
+  ; A = weapon value
+  ; B = enemy value
+  sub A, C ; A = A - B
+  jr nc, .weaponComplete ; c: B > A (overflow damage)
+  cpl A
+  inc A
+  ld B, A
+  call DecreaseHealth
+.weaponComplete
+  ; copy enemy to weapon power
+  ldh A, [hCardSuit]
+  swap A
+  or C ; A = combined card
+  ld [wCards + 5], A
+
+  ld A, [wCardFlags]
+  or a, $20
+  ld [wCardFlags], a
 .cleanup
   call DiscardSelection
 
@@ -729,24 +747,32 @@ PerformAttack:
   ld D, A ; D = last monster
   swap a
   and a, $0F ;
-  jr z, .openMenu ; no monster killed yet, open menu to choose
-
+  jr z, .setWeapon ; no monster killed yet, open menu to choose
   ; compare the current weapon strength with the target
   ld A, D ; A = last monster [total]
   and A, $0F ; get value of monster
   ld D, A ; D = weapon strength
   inc B
   cp A, B ; weapon - monster?
-  jr nc, .openMenu
+  jr nc, .setWeapon
   jr .punch
+.setWeapon
+  ld A, C
+  and A, $0F
+  ldh [hAttackValue], A
 .openMenu
   call DuplicateHealthBar
 
   ld A, 112 
   ldh [rWY], A
 
+  xor A
+  ld [wMenuCursor], A
+
   ld A, STATE_SELECT_ATTACK
   ldh [hGameState], A
+
+  ; A must not be zero
   jr .complete
 .punch
   call DecreaseHealth
@@ -1662,7 +1688,6 @@ SECTION "Constants", ROM0
 
 def START_TEXT_LEN equ 10
 StartText: DB "Push Start"
-FightText: DB "Weapon   Punch"
 
 def HEALTH_FIRST_HEART equ $9A0C
 def HEALTH_TENS equ $9A0E
@@ -1726,8 +1751,10 @@ TilesEnd:
 
 SECTION "AttackMenuTilemap", ROM0
 AttackMenuTilemap:
-db $00 , $00 , $00 , $00 , $1F , $24 , $1D , $12 , $17 , $00 , $00 , $00 , $26 , $14 , $10 , $1F
-db $1E , $1D , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
+db $00 , $00 , $00 , $00 , $26 , $14 , $10 , $1F , $1E , $1D , $00 , $00 , $1F , $24 , $1D , $12 
+db $17 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
+; db $00 , $00 , $00 , $00 , $1F , $24 , $1D , $12 , $17 , $00 , $00 , $00 , $26 , $14 , $10 , $1F
+; db $1E , $1D , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
 db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
 db $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00 , $00
 AttackMenuHealth: ; we need this to duplicate the healthbar
