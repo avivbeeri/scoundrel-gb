@@ -22,6 +22,7 @@ ENUM_MEMBER STATE_INIT
 ENUM_MEMBER STATE_ROOM
 ENUM_MEMBER STATE_SELECT
 ENUM_MEMBER STATE_SELECT_ATTACK
+ENUM_MEMBER STATE_SHOW_DAMAGE
 ENUM_MEMBER STATE_END_TURN
 ENUM_MEMBER STATE_END_WIN
 ENUM_MEMBER STATE_END_LOSE
@@ -500,6 +501,91 @@ MoveMenuCursor:
   ld [wMenuCursor], A
   ret
 
+
+GameShowDamageInit:
+  ld A, 30
+  ld [hChangeTimer], A
+
+  ld A, [hChangeValue]
+  call BCDSplit ; A is ones, B is 10s
+  inc A
+  ldh [hChangeOnes], A
+  ld A, B
+  inc A
+  ldh [hChangeTens], A
+
+  ld A, STATE_SHOW_DAMAGE
+  ldh [hGameState], A
+
+  ret
+
+GameShowDamage:
+  ldh A, [hChangeTimer]
+  dec A
+  ld [hChangeTimer], A
+  jr z, .stateComplete
+
+  cp A, 15
+  jr c, .zeroMove
+  sub A, 15
+  srl A
+  jr .skipZero
+.zeroMove
+  xor A
+.skipZero
+  add A, 136
+  ld B, A
+
+
+  ld hl, wShadowOAM + (5 * 4)
+  ld A, B
+  ld [hli], A
+  ld A, 112
+  ld [hli], A
+  ld A, $0C
+  ld [hli], A
+  xor A
+  ld [hli], A
+
+  ld A, B
+  ld [hli], A
+  ld A, 120
+  ld [hli], A
+  ldh A, [hChangeTens]
+  ld [hli], A
+  xor A
+  ld [hli], A
+
+  ld A, B
+  ld [hli], A
+  ld A, 128
+  ld [hli], A
+  ldh A, [hChangeOnes]
+  ld [hli], A
+  xor A
+  ld [hl], A
+  ret
+.stateComplete
+  ld A, STATE_SELECT
+  ldh [hGameState], A
+  ld hl, wShadowOAM + (5 * 4)
+  xor A
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+;
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+;
+  ld [hli], A
+  ld [hli], A
+  ld [hli], A
+  ld [hl], A
+  ret
+
 GameSelectAttack:
   ld a, [wNewKeys]
   and a, PAD_LEFT | PAD_RIGHT
@@ -523,6 +609,9 @@ GameSelectAttack:
 ; ----------------------------
 
 CompleteAttackAction:
+  ld A, STATE_SELECT
+  ldh [hGameState], A
+
   ld A, [hCardValue]
   ld C, A
   ld A, [wMenuCursor]
@@ -530,7 +619,11 @@ CompleteAttackAction:
   jr z, .weapon
   ; punch
   ld B, C
+  ld A,B
+  ldh [hChangeValue], A
   call DecreaseHealth
+  call GameShowDamageInit
+
   jr .cleanup
 .weapon
   ldh A, [hAttackValue] 
@@ -540,8 +633,10 @@ CompleteAttackAction:
   jr nc, .weaponComplete ; c: B > A (overflow damage)
   cpl A
   inc A
+  ldh [hChangeValue], A
   ld B, A
   call DecreaseHealth
+  call GameShowDamageInit
 .weaponComplete
   ; copy enemy to weapon power
   ldh A, [hCardSuit]
@@ -563,11 +658,8 @@ CompleteAttackAction:
   inc A
   ld [wActions], A
 
-  ld A, STATE_SELECT
-  ldh [hGameState], A
 
-  call HideAttackCursor
-  ret
+  jp HideAttackCursor
 ; -----------------------------------
 
 GameEndTurn:
@@ -582,6 +674,14 @@ GameEndTurn:
 ; -----------------------------------
 
 GameSelectMove:
+  ld a, [wActions]
+  cp a, 3
+  jr nz, .skip
+  ld A, STATE_END_TURN
+  ldh [hGameState], A
+.skip
+  call CheckEndConditions
+
   ld a, [wNewKeys]
   and a, PAD_UP | PAD_DOWN
   jr z, :+
@@ -604,15 +704,7 @@ GameSelectMove:
   jr z, :+
   call PerformGameAction
 :
-
-  ld a, [wActions]
-  cp a, 3
-  jr nz, .skip
-  ld A, STATE_END_TURN
-  ldh [hGameState], A
-.skip
-  ; tail call
-  jp CheckEndConditions
+  ret
 
 ; ---------------------------------
 CheckEndConditions:
@@ -775,7 +867,10 @@ PerformAttack:
   ; A must not be zero
   jr .complete
 .punch
+  ld A,B
+  ldh [hChangeValue], A
   call DecreaseHealth
+  call GameShowDamageInit
 
   ld A, [wCardFlags]
   or a, $40
@@ -1061,7 +1156,7 @@ RenderCard:
   ld A, SUIT_OFFSET
   call AddByteToDE
   ldh A, [hCardSuit]
-  add A, $4B
+  add A, $5B
   ld B, A
   call PushVRAMUpdate
 .renderCardValue
@@ -1683,6 +1778,10 @@ hCardValue: db
 hCardOnes: db
 hCardTens: db
 hAttackValue: db
+hChangeValue: db
+hChangeTimer: db
+hChangeOnes: db
+hChangeTens: db
 
 SECTION "Constants", ROM0
 
@@ -1724,6 +1823,7 @@ StateJumpTable:
   dw GameDrawRoom
   dw GameSelectMove
   dw GameSelectAttack
+  dw GameShowDamage
   dw GameEndTurn
   dw GameEnd
   dw GameEnd
