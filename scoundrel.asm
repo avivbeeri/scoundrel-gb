@@ -474,16 +474,16 @@ DrawAttackMenu:
   and A
   jr nz, .punch
 
-  ld a, 30
+  ld a, 33
   ld [hli], A
 
   jr .exit
 .punch
-  ld a, 94
+  ld a, 97
   ld [hli], A
 
 .exit
-  ld a, $5D
+  ld a, $5B
   ld [hli], A
   ld a, $00
   ld [hl], A
@@ -1310,12 +1310,13 @@ RenderCardBorder:
   add A, $1D
   ld E, A
 
-  ld B, $63
 REPT 3 ; 3 middle rows for border
+  ld B, $63
   call PushVRAMQueue
   inc E
   inc E
   inc E
+  ld B, $65
   call PushVRAMQueue
   ; carriage return
   ld A, E
@@ -1742,6 +1743,9 @@ wRunFlag: DB ; zero if we can run from the room, one if we can't
 wHealFlag: DB ; zero if we can run from the room, one if we can't
 wCards: DS 6 ; 4 cards in a room
 
+wDamageTaken: DB 
+wDamageHealed: DB 
+
 wDeckTop: DB
 wDeckBottom: DB
 wDeckSize: DB
@@ -1756,10 +1760,15 @@ wQueuePtr: DW
 
 SECTION "Shadow OAM", WRAM0, ALIGN[8]
 ; Cursor sprites for Deck
-; 50 08 2F 00
-; 50 22 2F 20
-; 70 08 2F 40
-; 70 22 2F 60
+; 00: 50 08 2F 00
+; 01: 50 22 2F 20
+; 02: 70 08 2F 40
+; 03: 70 22 2F 60
+; 04: cursor
+; 05: popup sign
+; 06: popup tens
+; 07: popup ones
+; 08: 
 wShadowOAM::
   ds 160
 
