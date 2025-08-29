@@ -318,6 +318,8 @@ GameInit:
   ld a, $14
   ld [wHealth], a
 
+  xor A
+  ld [wLastCard], a
   ; set room
   ld d, 0
   ld bc, 6
@@ -469,6 +471,22 @@ CalculateScore:
   jr .end
 .emptyDeck
   ld A, [wHealth]
+  cp A, 20
+  ; health is 20, check if last card was a health potion
+  jr c, .end
+  ld B, A ;  B = score
+  ld A, [wLastCard]
+  ld C, A ; C = card
+  and A, $F0 ; get suit
+  swap A
+  cp A, 1 ; a != 1, we skip
+  jr z, .addLast
+  ld A, B
+  jr .end
+.addLast
+  ld A, C
+  and A, $0F
+  add A, B ; A = score + last card
 .end
   ret
 
@@ -807,6 +825,7 @@ PerformGameAction:
   add A, E
   ld E, A
   ld A, [DE] ; card = cards[i]
+  ld [wLastCard], A
   ; now do something with card
 
   ld B, A
@@ -1919,6 +1938,7 @@ wCardFlags: DB
 wCursor: DB
 wMenuCursor: DB
 wHealth: DB
+wLastCard: DB
 wActions: DB ; zero if we can run from the room, one if we can't
 wRunFlag: DB ; zero if we can run from the room, one if we can't
 wHealFlag: DB ; zero if we can run from the room, one if we can't
