@@ -425,6 +425,54 @@ BuryCard:
   ret
 
 ; ---------------------------------
+CalculateScore:
+  ld A, [wDeckTop] 
+  ld L, A ; L = top
+  ld A, [wDeckBottom] 
+  ld D, A
+  cp A, L ; top == bottom?
+  jr z, .emptyDeck
+  ld A, [wHealth]
+  ld B, A  ;  B = card value
+  ld H, HIGH(wDeck)
+
+  ld A, 0
+  ld B, 0
+.loop
+  ld A, [HL]
+  ld C, A ; C = card
+  and A, $F0 ; get suit
+  swap A
+  cp A, 3 ; a <= 2, we skip
+  jr c, .skipCard
+  
+  ld A, C
+  and A, $0F
+  adc A, B ; score -= card value
+  ld B, A
+.skipCard
+  inc HL
+
+  ld A, L
+  cp A, 48 ; ccheck if we overran the list
+  jr c, .checkExit
+  ld L, 0
+.checkExit
+  ld A, L
+  cp A, D ; A == D
+  jr nz, .loop
+.exit
+  ld A, [wHealth]
+  sbc A, B
+  cpl
+  inc A
+  jr .end
+.emptyDeck
+  ld A, [wHealth]
+.end
+  ret
+
+; ---------------------------------
 DrawCard:
   push DE
   ld D, 0
@@ -1017,6 +1065,66 @@ InitGameoverScene:
 	ld hl, $9800
 	ld bc, TextboxTilemapEnd - TextboxTilemap
   call MemCopy
+
+  ldh a, [hGameState]
+  cp STATE_END_WIN
+  jr nz, .lose
+    
+	ld de, WinText
+  ld bc, WIN_TEXT_LEN
+  ld hl, $9846
+
+  jr .done
+.lose
+	ld de, FailText
+  ld bc, FAIL_TEXT_LEN
+  ld hl, $9845
+
+  ld A, 12
+  ld [$98CE], A ; preserve A for later
+
+.done
+  call MemCopy
+
+	ld de, ScoreText
+  ld bc, SCORE_TEXT_LEN
+  ld hl, $98A2
+  call MemCopy
+
+	ld de, RemainingText
+  ld bc, REMAINING_TEXT_LEN
+  ld hl, $9902
+  call MemCopy
+
+  ld A, [wDeckSize]
+  call BCDSplit
+  inc A ; increment to get tile index from number
+  inc B
+  ld [$9931], A ; preserve A for later
+  ld A, B
+  ld [$9930], A ; preserve A for later
+
+  call CalculateScore
+
+  ld C, -1
+.loop
+  inc C
+  sub 100
+  jr nc, .loop
+  add A, 100
+
+  call BCDSplit
+
+  inc A ; increment to get tile index from number
+  inc B
+  inc C
+  ld [$98D1], A ; preserve A for later
+  ld A, B
+  ld [$98D0], A ; preserve A for later
+  ld A, C
+  ld [$98CF], A ; preserve A for later
+
+
   ld A, %11100100
 	ld [rBGP], a
   ; Enable the VBLANK interrupt
@@ -1038,9 +1146,9 @@ UpdateGameoverScene:
   jr z, .blank
 
   ; write or blank out text
-	ld de, StartText
-  ld hl, $99E5
-  ld bc, START_TEXT_LEN
+	ld de, ContinueText
+  ld hl, $99E2
+  ld bc, CONTINUE_TEXT_LEN
   call MemCopy
 
   jp .end ; jump over this, "else"
@@ -1048,8 +1156,8 @@ UpdateGameoverScene:
 .blank:
   ; re-copy text
   ld d, 0
-  ld bc, START_TEXT_LEN
-  ld hl, $99E5
+  ld bc, CONTINUE_TEXT_LEN
+  ld hl, $99E2
   call Memset
 
 .end:
@@ -1869,6 +1977,21 @@ SECTION "Constants", ROM0
 
 def START_TEXT_LEN equ 10
 StartText: DB "Push Start"
+
+def WIN_TEXT_LEN equ 8
+WinText: DB "You win!"
+
+def FAIL_TEXT_LEN equ 10
+FailText: DB "You  died!"
+
+def SCORE_TEXT_LEN equ 11
+ScoreText: DB "Final Score"
+
+def REMAINING_TEXT_LEN equ 10
+RemainingText: DB "Cards Left"
+
+def CONTINUE_TEXT_LEN equ 16
+ContinueText: DB "-- Push Start --"
 
 def HEALTH_FIRST_HEART equ $9A0C
 def HEALTH_TENS equ $9A0E
