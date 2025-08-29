@@ -130,9 +130,20 @@ EntryPoint:
 
   call CopyDMARoutine
 
-	; Shut down audio circuitry
-	ld a, 0
-	ld [rNR52], a
+  ; ----------------------
+  ; Audio setup
+  ld a,AUDTERM_1_LEFT|AUDTERM_1_RIGHT
+  ldh [rAUDTERM], a ; Pan channel 1 left and right.
+	; Turn on audio circuitry
+  ld a,AUDENA_ON
+  ldh [rAUDENA], a ; Turn on the audio system.
+  ld a,$77
+  ldh [rAUDVOL], a ; Max volume.
+  ld a,AUD1LEN_DUTY_50
+  ldh [rAUD1LEN], a ; Set PWM duty. Adjust to taste.
+  ld a,$71
+  ldh [rAUD1ENV], a ; Set volume envelope. Adjust to taste.
+  ; ------------------
 
   ; Enable the VBLANK interrupt
   ld a, IE_VBLANK | IE_JOYPAD
@@ -490,6 +501,13 @@ CalculateScore:
 .end
   ret
 
+PlaySound:
+  ld a, $74
+  ldh [rAUD1LOW], a ; Low portion of pitch value. $00-ff. Adjust to taste.
+  ld a, AUD1HIGH_RESTART | $0
+  ldh [rAUD1HIGH], a ; High portion of pitch value. $0-7. Adjust to taste.
+  ret
+
 ; ---------------------------------
 DrawCard:
   push DE
@@ -668,6 +686,7 @@ GameSelectAttack:
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
+  call PlaySound
   jp CompleteAttackAction
 :
   ld a, [wNewKeys]
@@ -775,6 +794,7 @@ GameSelectMove:
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
+  call PlaySound
   call PerformGameAction
 :
   ret
@@ -1225,6 +1245,7 @@ UpdateTitleScene:
   ld a, 1
 	ldh [hScene], a
 
+  call PlaySound
   call InitGameScene
 .complete:
 
@@ -1599,6 +1620,7 @@ MoveCursorRow:
   ld a, 4
 .complete
   ld [wCursor], a
+  call PlaySound
   ret
 
 ; ----------------------------
@@ -1609,6 +1631,7 @@ MoveCursorLeft:
   ld a, 4
 .complete
   ld [wCursor], a
+  call PlaySound
   ret
 ; ----------------------------
 MoveCursorRight:
@@ -1619,6 +1642,7 @@ MoveCursorRight:
   xor a
 .complete
   ld [wCursor], a
+  call PlaySound
   ret
 ; ----------------------------
 IncreaseHealth:
