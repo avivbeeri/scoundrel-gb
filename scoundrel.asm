@@ -132,17 +132,13 @@ EntryPoint:
 
   ; ----------------------
   ; Audio setup
-  ld a,AUDTERM_1_LEFT|AUDTERM_1_RIGHT
+  ld a,AUDTERM_4_LEFT|AUDTERM_4_RIGHT |AUDTERM_1_LEFT|AUDTERM_1_RIGHT
   ldh [rAUDTERM], a ; Pan channel 1 left and right.
 	; Turn on audio circuitry
   ld a,AUDENA_ON
   ldh [rAUDENA], a ; Turn on the audio system.
   ld a,$77
   ldh [rAUDVOL], a ; Max volume.
-  ld a,AUD1LEN_DUTY_50
-  ldh [rAUD1LEN], a ; Set PWM duty. Adjust to taste.
-  ld a,$71
-  ldh [rAUD1ENV], a ; Set volume envelope. Adjust to taste.
   ; ------------------
 
   ; Enable the VBLANK interrupt
@@ -501,10 +497,37 @@ CalculateScore:
 .end
   ret
 
-PlaySound:
-  ld a, $74
+PlayNoiseSound:
+  ld a, 56
+  ldh [rAUD4LEN], a ; Set length. Adjust to taste.
+
+  ld a, AUD4ENV_INIT_VOLUME | AUD4ENV_DOWN | AUD4ENV_PACE
+  ldh [rAUD4ENV], a ; Set volume envelope. Adjust to taste.
+
+  ld a, %0101_0000 | AUD4POLY_7STEP | %00000_100
+  ldh [rAUD4POLY], a ; Randomness/period
+
+  ld a, AUD4GO_RESTART | AUD4GO_LENGTH_ON
+  ldh [rAUD4GO], a 
+  ret
+PlayLowSound:
+  ld a, AUD1LEN_DUTY_12_5
+  ldh [rAUD1LEN], a ; Set PWM duty. Adjust to taste.
+  ld a, $71
+  ldh [rAUD1ENV], a ; Set volume envelope. Adjust to taste.
+  ld a, $01
   ldh [rAUD1LOW], a ; Low portion of pitch value. $00-ff. Adjust to taste.
   ld a, AUD1HIGH_RESTART | $0
+  ldh [rAUD1HIGH], a ; High portion of pitch value. $0-7. Adjust to taste.
+  ret
+PlayHighSound:
+  ld a, AUD1LEN_DUTY_75
+  ldh [rAUD1LEN], a ; Set PWM duty. Adjust to taste.
+  ld a, $71
+  ldh [rAUD1ENV], a ; Set volume envelope. Adjust to taste.
+  ld a, $FF
+  ldh [rAUD1LOW], a ; Low portion of pitch value. $00-ff. Adjust to taste.
+  ld a, AUD1HIGH_RESTART | $4
   ldh [rAUD1HIGH], a ; High portion of pitch value. $0-7. Adjust to taste.
   ret
 
@@ -686,7 +709,7 @@ GameSelectAttack:
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
-  call PlaySound
+  call PlayNoiseSound
   jp CompleteAttackAction
 :
   ld a, [wNewKeys]
@@ -794,7 +817,6 @@ GameSelectMove:
   ld a, [wNewKeys]
   and a, PAD_A
   jr z, :+
-  call PlaySound
   call PerformGameAction
 :
   ret
@@ -891,6 +913,7 @@ PerformHeal:
 
   ld A, 1
   ld [wHealFlag], A
+  call PlayHighSound
 .complete
   xor A
   ret
@@ -910,6 +933,8 @@ PerformWeaponPickup:
   ld A, [wCardFlags]
   or a, $30
   ld [wCardFlags], a
+
+  call PlayLowSound
 
   xor A
   ret
@@ -941,6 +966,7 @@ PerformAttack:
   inc B
   cp A, B ; weapon - monster?
   jr nc, .setWeapon
+  dec B
   jr .punch
 .setWeapon
   ld A, C
@@ -970,6 +996,7 @@ PerformAttack:
   or a, $40
   ld [wCardFlags], a
 
+  call PlayNoiseSound
   xor A
 .complete
   ret
@@ -1017,6 +1044,7 @@ PerformRedraw:
   or A, $0F
   ld [wCardFlags], A
 
+  call PlayLowSound
   ld A, 1
   ld [wRunFlag], A
 .skip
@@ -1208,6 +1236,7 @@ UpdateGameoverScene:
   ld a, 1
 	ldh [hScene], a
 
+  call PlayHighSound
   call InitGameScene
 .complete:
 
@@ -1245,7 +1274,7 @@ UpdateTitleScene:
   ld a, 1
 	ldh [hScene], a
 
-  call PlaySound
+  call PlayHighSound
   call InitGameScene
 .complete:
 
@@ -1620,7 +1649,6 @@ MoveCursorRow:
   ld a, 4
 .complete
   ld [wCursor], a
-  call PlaySound
   ret
 
 ; ----------------------------
@@ -1631,7 +1659,6 @@ MoveCursorLeft:
   ld a, 4
 .complete
   ld [wCursor], a
-  call PlaySound
   ret
 ; ----------------------------
 MoveCursorRight:
@@ -1642,7 +1669,6 @@ MoveCursorRight:
   xor a
 .complete
   ld [wCursor], a
-  call PlaySound
   ret
 ; ----------------------------
 IncreaseHealth:
